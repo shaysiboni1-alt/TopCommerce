@@ -133,29 +133,25 @@ function buildTimeline(callSid, options) {
   return compact ? filtered.map(compactItem) : filtered;
 }
 
-
-function extractTimelineMarkersFromTimeline(timeline) {
-  const markers = {};
-  for (const item of safeArray(timeline)) {
-    if (!item || item.kind !== "checkpoint") continue;
-    const label = safeStr(item?.data?.label || item?.label);
-    if (!label.startsWith("timeline_")) continue;
-    const key = label.replace(/^timeline_/, "");
-    const value = safeStr(item?.data?.snapshot?.timeline?.[key]);
-    if (key && value && !markers[key]) markers[key] = value;
-  }
-  return markers;
-}
-
 function buildCallDebugView(callSid, options) {
   const id = safeStr(callSid);
   const record = getCallRecord(id);
   const timeline = buildTimeline(id, options);
+  const timelineMarkers = record && record.checkpoints
+    ? record.checkpoints
+        .filter((item) => safeStr(item && item.label).startsWith("timeline_"))
+        .reduce((acc, item) => {
+          const key = safeStr(item.label).replace(/^timeline_/, "");
+          if (!key) return acc;
+          acc[key] = clone(item.snapshot || {});
+          return acc;
+        }, {})
+    : {};
 
   return {
     callSid: id || null,
     summary: record ? clone(record.summary || {}) : null,
-    timeline_markers: extractTimelineMarkersFromTimeline(timeline),
+    timeline_markers: timelineMarkers,
     timeline,
   };
 }
