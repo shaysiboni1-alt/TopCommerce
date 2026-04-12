@@ -407,6 +407,7 @@ class GeminiLiveSession {
       try {
         this.ws.send(JSON.stringify(setup));
         this.ready = true;
+        if (this.callSession?.markTimeline) this.callSession.markTimeline("provider_session_ready_at");
 
         recordCallEvent({
           callSid: this._getCallData().callSid,
@@ -705,6 +706,7 @@ class GeminiLiveSession {
 
   noteAssistantPlaybackStart() {
     this._assistantPlaybackActive = true;
+    if (this.callSession?.markTimeline) this.callSession.markTimeline("first_audio_out_at");
     if (this._openingPhase) this._openingAudioStarted = true;
     this._orchestrator?.noteAssistantPlaybackStart?.();
 
@@ -1016,6 +1018,7 @@ class GeminiLiveSession {
     this._orchestrator?.noteTranscript?.(role, finalText, normalized);
 
     if (role === "assistant") {
+      if (this.callSession?.markTimeline) this.callSession.markTimeline("first_bot_response_at");
       if (isClosingUtterance(finalText, this.ssot)) {
         this._hardClosingMode = true;
         this._orchestrator?.noteClosing?.();
@@ -1040,6 +1043,7 @@ class GeminiLiveSession {
     }
 
     this._applyLanguageDecision(normalized);
+    if (this.callSession?.markTimeline) this.callSession.markTimeline("first_user_stable_utterance_at");
     handleUserTranscript(this, normalized, {
       onNameDetected: (name, reason, sourceUtterance) =>
         this._commitRuntimeName(name, reason, sourceUtterance),
