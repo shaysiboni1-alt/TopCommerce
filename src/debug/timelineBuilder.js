@@ -24,6 +24,60 @@ function safeArray(v) {
   return Array.isArray(v) ? v : [];
 }
 
+function safeTs(v) {
+  const s = safeStr(v);
+  return s || null;
+}
+
+function safeDiffMs(fromTs, toTs) {
+  const from = safeTs(fromTs);
+  const to = safeTs(toTs);
+  if (!from || !to) return null;
+
+  const fromMs = Date.parse(from);
+  const toMs = Date.parse(to);
+
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+
+  const diff = toMs - fromMs;
+  return diff >= 0 ? diff : null;
+}
+
+function buildDerivedMetrics(markers) {
+  const timeline = markers && typeof markers === "object" ? markers : {};
+
+  const call_answered_at = safeTs(timeline.call_answered_at);
+  const ws_connected_at = safeTs(timeline.ws_connected_at);
+  const provider_session_ready_at = safeTs(timeline.provider_session_ready_at);
+  const first_opening_sent_at = safeTs(timeline.first_opening_sent_at);
+  const first_audio_out_at = safeTs(timeline.first_audio_out_at);
+  const first_user_audio_at = safeTs(timeline.first_user_audio_at);
+  const first_user_stable_utterance_at = safeTs(timeline.first_user_stable_utterance_at);
+  const first_bot_response_at = safeTs(timeline.first_bot_response_at);
+  const finalization_started_at = safeTs(timeline.finalization_started_at);
+  const finalization_completed_at = safeTs(timeline.finalization_completed_at);
+
+  return {
+    answer_to_ws_connected_ms: safeDiffMs(call_answered_at, ws_connected_at),
+    ws_to_provider_ready_ms: safeDiffMs(ws_connected_at, provider_session_ready_at),
+    provider_ready_to_opening_sent_ms: safeDiffMs(provider_session_ready_at, first_opening_sent_at),
+    opening_sent_to_first_audio_out_ms: safeDiffMs(first_opening_sent_at, first_audio_out_at),
+
+    answer_to_first_audio_out_ms: safeDiffMs(call_answered_at, first_audio_out_at),
+    first_audio_out_to_first_user_audio_ms: safeDiffMs(first_audio_out_at, first_user_audio_at),
+    first_user_audio_to_stable_utterance_ms: safeDiffMs(first_user_audio_at, first_user_stable_utterance_at),
+    stable_utterance_to_first_bot_response_ms: safeDiffMs(first_user_stable_utterance_at, first_bot_response_at),
+    user_end_to_bot_start_ms: safeDiffMs(first_user_stable_utterance_at, first_bot_response_at),
+
+    finalization_duration_ms: safeDiffMs(finalization_started_at, finalization_completed_at),
+
+    has_user_audio: !!first_user_audio_at,
+    has_stable_utterance: !!first_user_stable_utterance_at,
+    has_bot_response: !!first_bot_response_at,
+    has_finalization_window: !!(finalization_started_at && finalization_completed_at),
+  };
+}
+
 function buildTimelineEntryFromEvent(event) {
   const item = event && typeof event === "object" ? event : {};
   return {
@@ -159,11 +213,14 @@ function buildCallDebugView(callSid, options) {
   const id = safeStr(callSid);
   const record = getCallRecord(id);
   const timeline = buildTimeline(id, options);
+  const timeline_markers = record ? extractTimelineMarkers(record) : {};
+  const derived_metrics = buildDerivedMetrics(timeline_markers);
 
   return {
     callSid: id || null,
     summary: record ? clone(record.summary || {}) : null,
-    timeline_markers: record ? extractTimelineMarkers(record) : {},
+    timeline_markers,
+    derived_metrics,
     timeline,
   };
 }
