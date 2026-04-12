@@ -96,6 +96,8 @@ async function finalizeThroughCoordinator({
           ended_at: entry.snapshot?.call?.ended_at || null,
         },
       });
+
+      entry?.session?.markTimeline?.("finalization_completed_at");
     } catch (e) {
       logger.warn("finalizationCoordinator snapshot-only update failed", {
         callSid,
