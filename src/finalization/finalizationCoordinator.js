@@ -54,6 +54,7 @@ async function finalizeThroughCoordinator({
   });
 
   const entry = getEntry(callSid);
+  if (entry?.session?.callSession?.markTimeline) entry.session.callSession.markTimeline("finalization_started_at");
 
   if (!entry) {
     logger.warn("finalizationCoordinator missing call", {
@@ -189,6 +190,7 @@ async function finalizeThroughCoordinator({
       ssot: getSSOT(),
     });
 
+    if (entry?.session?.callSession?.markTimeline) entry.session.callSession.markTimeline("finalization_completed_at");
     clearSession(callSid);
 
     recordFinalizationEvent({
