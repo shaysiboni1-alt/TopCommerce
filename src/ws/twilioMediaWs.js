@@ -264,6 +264,7 @@ function installTwilioMediaWs(server) {
 
         callSession = new CallSession(meta);
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
+        if (callSession?.markTimeline) callSession.markTimeline("ws_connected_at");
 
         gemini = new GeminiLiveSession({
           meta,
@@ -294,6 +295,7 @@ function installTwilioMediaWs(server) {
             samples = aecResult.samples;
           }
 
+          if (callSession?.markTimeline) callSession.markTimeline("first_user_audio_at");
           if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio();
           const preprocessOptions = gemini?.getAudioPreprocessOptions
             ? gemini.getAudioPreprocessOptions()
