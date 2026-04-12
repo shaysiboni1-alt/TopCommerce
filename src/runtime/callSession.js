@@ -2,7 +2,11 @@
 
 const { CALL_STATES } = require("./callState");
 const { createInitialSnapshot } = require("./callSnapshot");
-const { recordCallEvent, recordStateTransition, recordSnapshotCheckpoint } = require("../debug/debugLogger");
+const {
+  recordCallEvent,
+  recordStateTransition,
+  recordSnapshotCheckpoint,
+} = require("../debug/debugLogger");
 const { DEBUG_EVENT_CATEGORIES, DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
 
 function safeStr(v) {
@@ -71,19 +75,17 @@ class CallSession {
 
     this.snapshot = snapshot;
 
-    const initialTimelineMarkers = meta.timeline_markers && typeof meta.timeline_markers === "object"
-      ? meta.timeline_markers
-      : {};
-
-    this.snapshot = {
-      ...(this.snapshot || {}),
-      call: {
-        ...((this.snapshot && this.snapshot.call) || {}),
-        timeline_markers: {
-          ...((((this.snapshot && this.snapshot.call) || {}).timeline_markers) || {}),
-          ...initialTimelineMarkers,
-        },
-      },
+    this.timeline = {
+      call_answered_at: startedAt,
+      ws_connected_at: null,
+      provider_session_ready_at: null,
+      first_opening_sent_at: null,
+      first_audio_out_at: null,
+      first_user_audio_at: null,
+      first_user_stable_utterance_at: null,
+      first_bot_response_at: null,
+      finalization_started_at: null,
+      finalization_completed_at: null,
     };
 
     this.refs = {
@@ -287,65 +289,54 @@ class CallSession {
     return this.refs.geminiSession || null;
   }
 
-  getTimelineMarkers() {
-    return ((this.snapshot && this.snapshot.call) || {}).timeline_markers || {};
+  getMeta() {
+    return this.meta;
   }
 
-  markTimeline(markerName, extraData) {
-    const key = safeStr(markerName);
-    if (!key) return null;
-
-    const currentCall = this.getCall();
-    const currentMarkers = currentCall.timeline_markers && typeof currentCall.timeline_markers === "object"
-      ? currentCall.timeline_markers
-      : {};
-
-    if (currentMarkers[key]) {
-      return currentMarkers[key];
+  markTimeline(name, value) {
+    const key = safeStr(name);
+    if (!key || !Object.prototype.hasOwnProperty.call(this.timeline || {}, key)) {
+      return null;
     }
 
-    const ts = new Date().toISOString();
-    const normalizedExtra = extraData && typeof extraData === "object" ? extraData : {};
-    const marker = {
-      ts,
-      ...normalizedExtra,
-    };
+    if (this.timeline[key]) {
+      return this.timeline[key];
+    }
 
-    this.updateCall((callData) => ({
-      ...(callData || {}),
-      timeline_markers: {
-        ...currentMarkers,
-        [key]: marker,
-      },
-    }));
+    const ts = safeStr(value) || new Date().toISOString();
+    this.timeline[key] = ts;
+    this.touch();
 
     recordSnapshotCheckpoint({
       callSid: this.callSid,
       label: `timeline_${key}`,
       snapshot: {
-        timeline_marker: key,
-        ...marker,
+        timeline: {
+          ...(this.timeline || {}),
+        },
       },
+      ts,
     });
 
     recordCallEvent({
       callSid: this.callSid,
       streamSid: this.streamSid,
       category: DEBUG_EVENT_CATEGORIES.SESSION,
-      type: "TIMELINE_MARKER_SET",
-      source: "callSession",
-      level: "debug",
+      type: 'TIMELINE_MARKED',
+      source: 'callSession',
+      level: 'debug',
+      ts,
       data: {
         marker: key,
-        ...marker,
+        value: ts,
       },
     });
 
-    return marker;
+    return ts;
   }
 
-  getMeta() {
-    return this.meta;
+  getTimeline() {
+    return { ...(this.timeline || {}) };
   }
 
   toJSON() {
@@ -356,6 +347,7 @@ class CallSession {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       meta: this.meta,
+      timeline: this.timeline,
       snapshot: this.snapshot,
       refs: {
         twilioWsAttached: !!this.refs.twilioWs,

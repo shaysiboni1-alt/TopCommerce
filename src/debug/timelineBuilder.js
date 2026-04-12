@@ -133,25 +133,37 @@ function buildTimeline(callSid, options) {
   return compact ? filtered.map(compactItem) : filtered;
 }
 
+function extractTimelineMarkers(record) {
+  const checkpoints = safeArray(record && record.checkpoints);
+  const markers = {};
+
+  checkpoints.forEach((checkpoint) => {
+    const label = safeStr(checkpoint && checkpoint.label);
+    if (!label || !label.startsWith("timeline_")) return;
+    const key = label.slice("timeline_".length);
+    if (!key) return;
+
+    const snapshot = checkpoint && checkpoint.snapshot && typeof checkpoint.snapshot === "object"
+      ? checkpoint.snapshot
+      : {};
+    const timeline = snapshot.timeline && typeof snapshot.timeline === "object"
+      ? snapshot.timeline
+      : {};
+    markers[key] = safeStr(timeline[key]) || safeStr(checkpoint && checkpoint.ts) || null;
+  });
+
+  return markers;
+}
+
 function buildCallDebugView(callSid, options) {
   const id = safeStr(callSid);
   const record = getCallRecord(id);
   const timeline = buildTimeline(id, options);
-  const timelineMarkers = record && record.checkpoints
-    ? record.checkpoints
-        .filter((item) => safeStr(item && item.label).startsWith("timeline_"))
-        .reduce((acc, item) => {
-          const key = safeStr(item.label).replace(/^timeline_/, "");
-          if (!key) return acc;
-          acc[key] = clone(item.snapshot || {});
-          return acc;
-        }, {})
-    : {};
 
   return {
     callSid: id || null,
     summary: record ? clone(record.summary || {}) : null,
-    timeline_markers: timelineMarkers,
+    timeline_markers: record ? extractTimelineMarkers(record) : {},
     timeline,
   };
 }

@@ -132,6 +132,7 @@ function installTwilioMediaWs(server) {
         callSid = msg?.start?.callSid || null;
         customParameters = msg?.start?.customParameters || {};
         logger.info("Twilio stream start", { streamSid, callSid, customParameters });
+        callSession?.markTimeline?.("ws_connected_at");
 
         recordCallEvent({
           callSid,
@@ -263,11 +264,9 @@ function installTwilioMediaWs(server) {
         }
 
         callSession = new CallSession(meta);
+        callSession?.markTimeline?.("call_answered_at", meta.started_at || new Date().toISOString());
+        callSession?.markTimeline?.("ws_connected_at");
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
-        if (callSession?.markTimeline) {
-          callSession.markTimeline("call_answered_at", { phase: "twilio_start" });
-          callSession.markTimeline("ws_connected_at", { phase: "twilio_start" });
-        }
 
         gemini = new GeminiLiveSession({
           meta,
@@ -298,7 +297,8 @@ function installTwilioMediaWs(server) {
             samples = aecResult.samples;
           }
 
-          if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio({ rms: currentRms });
+          callSession?.markTimeline?.("first_user_audio_at");
+          if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio();
           const preprocessOptions = gemini?.getAudioPreprocessOptions
             ? gemini.getAudioPreprocessOptions()
             : {};
