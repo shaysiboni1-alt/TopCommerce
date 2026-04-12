@@ -264,7 +264,10 @@ function installTwilioMediaWs(server) {
 
         callSession = new CallSession(meta);
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
-        if (callSession?.markTimeline) callSession.markTimeline("ws_connected_at");
+        if (callSession?.markTimeline) {
+          callSession.markTimeline("call_answered_at", { phase: "twilio_start" });
+          callSession.markTimeline("ws_connected_at", { phase: "twilio_start" });
+        }
 
         gemini = new GeminiLiveSession({
           meta,
@@ -295,8 +298,7 @@ function installTwilioMediaWs(server) {
             samples = aecResult.samples;
           }
 
-          if (callSession?.markTimeline) callSession.markTimeline("first_user_audio_at");
-          if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio();
+          if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio({ rms: currentRms });
           const preprocessOptions = gemini?.getAudioPreprocessOptions
             ? gemini.getAudioPreprocessOptions()
             : {};

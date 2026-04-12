@@ -292,6 +292,19 @@ class GeminiLiveSession {
       this._openingPhaseFallbackTimer = null;
     }
 
+    if (role === "user" && this.callSession?.markTimeline) {
+      this.callSession.markTimeline("first_user_stable_utterance_at", {
+        text: finalText,
+        who,
+      });
+    }
+    if (role === "assistant" && this.callSession?.markTimeline) {
+      this.callSession.markTimeline("first_bot_response_at", {
+        text: finalText,
+        who,
+      });
+    }
+
     recordCallEvent({
       callSid: this._getCallData().callSid,
       streamSid: this._getCallData().streamSid,
@@ -350,6 +363,12 @@ class GeminiLiveSession {
     this.ws.on("open", async () => {
       logger.info("Gemini Live WS connected", this.meta);
 
+      if (this.callSession?.markTimeline) {
+        this.callSession.markTimeline("provider_session_ready_at", {
+          provider: "gemini",
+        });
+      }
+
       recordCallEvent({
         callSid: this._getCallData().callSid,
         streamSid: this._getCallData().streamSid,
@@ -407,7 +426,6 @@ class GeminiLiveSession {
       try {
         this.ws.send(JSON.stringify(setup));
         this.ready = true;
-        if (this.callSession?.markTimeline) this.callSession.markTimeline("provider_session_ready_at");
 
         recordCallEvent({
           callSid: this._getCallData().callSid,
@@ -471,6 +489,12 @@ class GeminiLiveSession {
         }
 
         this._beginOpeningPhase();
+        if (this.callSession?.markTimeline) {
+          this.callSession.markTimeline("first_opening_sent_at", {
+            opening_text: openingText,
+            opening_phase: true,
+          });
+        }
 
         const openingInstruction = `התחילי עכשיו את השיחה הטלפונית. אמרי בדיוק את המשפט הבא, בטון מקצועי וטבעי, בלי להוסיף הקדמה ובלי לשנות מילים, ואז עצרי והמתיני ללקוח: ${openingText}`;
         const greetMsg = {
@@ -706,8 +730,12 @@ class GeminiLiveSession {
 
   noteAssistantPlaybackStart() {
     this._assistantPlaybackActive = true;
-    if (this.callSession?.markTimeline) this.callSession.markTimeline("first_audio_out_at");
     if (this._openingPhase) this._openingAudioStarted = true;
+    if (this.callSession?.markTimeline) {
+      this.callSession.markTimeline("first_audio_out_at", {
+        opening_phase: !!this._openingPhase,
+      });
+    }
     this._orchestrator?.noteAssistantPlaybackStart?.();
 
     recordCallEvent({
@@ -757,7 +785,12 @@ class GeminiLiveSession {
     return this._orchestrator?.getAudioPreprocessOptions?.() || {};
   }
 
-  noteInboundUserAudio() {
+  noteInboundUserAudio(meta = {}) {
+    if (this.callSession?.markTimeline) {
+      this.callSession.markTimeline("first_user_audio_at", {
+        rms: Number.isFinite(Number(meta?.rms)) ? Number(meta.rms) : null,
+      });
+    }
     this._orchestrator?.noteUserAudio?.();
   }
 
@@ -1018,7 +1051,6 @@ class GeminiLiveSession {
     this._orchestrator?.noteTranscript?.(role, finalText, normalized);
 
     if (role === "assistant") {
-      if (this.callSession?.markTimeline) this.callSession.markTimeline("first_bot_response_at");
       if (isClosingUtterance(finalText, this.ssot)) {
         this._hardClosingMode = true;
         this._orchestrator?.noteClosing?.();
@@ -1043,7 +1075,6 @@ class GeminiLiveSession {
     }
 
     this._applyLanguageDecision(normalized);
-    if (this.callSession?.markTimeline) this.callSession.markTimeline("first_user_stable_utterance_at");
     handleUserTranscript(this, normalized, {
       onNameDetected: (name, reason, sourceUtterance) =>
         this._commitRuntimeName(name, reason, sourceUtterance),

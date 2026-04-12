@@ -8,6 +8,11 @@ const { tryAcquireFinalize, releaseFinalize } = require("../runtime/finalizeOnce
 const { recordFinalizationEvent } = require("../debug/debugLogger");
 const { DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
 
+function markTimeline(entry, markerName, extraData) {
+  if (!entry || !entry.session || typeof entry.session.markTimeline !== "function") return;
+  entry.session.markTimeline(markerName, extraData || {});
+}
+
 function applySessionSnapshotUpdate(entry, { source, sessionFinalizeData, conversationLog }) {
   entry.snapshot = {
     ...(entry.snapshot || {}),
@@ -54,7 +59,13 @@ async function finalizeThroughCoordinator({
   });
 
   const entry = getEntry(callSid);
-  if (entry?.session?.callSession?.markTimeline) entry.session.callSession.markTimeline("finalization_started_at");
+
+  if (entry) {
+    markTimeline(entry, "finalization_started_at", {
+      trigger_source: source || null,
+      twilio_call_status: twilioStatus || null,
+    });
+  }
 
   if (!entry) {
     logger.warn("finalizationCoordinator missing call", {
@@ -83,6 +94,12 @@ async function finalizeThroughCoordinator({
         source,
         sessionFinalizeData,
         conversationLog,
+      });
+
+      markTimeline(entry, "finalization_completed_at", {
+        winner_source: source || "finalization_coordinator",
+        phase: "snapshot_only",
+        twilio_call_status: entry.snapshot?.call?.twilio_call_status || null,
       });
 
       recordFinalizationEvent({
@@ -190,8 +207,13 @@ async function finalizeThroughCoordinator({
       ssot: getSSOT(),
     });
 
-    if (entry?.session?.callSession?.markTimeline) entry.session.callSession.markTimeline("finalization_completed_at");
     clearSession(callSid);
+
+    markTimeline(entry, "finalization_completed_at", {
+      winner_source: source || "finalization_coordinator",
+      final_status: out?.decision?.business_status || null,
+      final_reason: out?.decision?.reason || null,
+    });
 
     recordFinalizationEvent({
       callSid,
