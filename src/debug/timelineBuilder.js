@@ -193,17 +193,27 @@ function extractTimelineMarkers(record) {
 
   checkpoints.forEach((checkpoint) => {
     const label = safeStr(checkpoint && checkpoint.label);
-    if (!label || !label.startsWith("timeline_")) return;
-    const key = label.slice("timeline_".length);
-    if (!key) return;
-
     const snapshot = checkpoint && checkpoint.snapshot && typeof checkpoint.snapshot === "object"
       ? checkpoint.snapshot
       : {};
     const timeline = snapshot.timeline && typeof snapshot.timeline === "object"
       ? snapshot.timeline
       : {};
-    markers[key] = safeStr(timeline[key]) || safeStr(checkpoint && checkpoint.ts) || null;
+
+    if (label && label.startsWith("timeline_")) {
+      const key = label.slice("timeline_".length);
+      if (key && !markers[key]) {
+        markers[key] = safeStr(timeline[key]) || safeStr(checkpoint && checkpoint.ts) || null;
+      }
+    }
+
+    Object.keys(timeline).forEach((key) => {
+      if (!key || markers[key]) return;
+      const value = safeStr(timeline[key]);
+      if (value) {
+        markers[key] = value;
+      }
+    });
   });
 
   return markers;
