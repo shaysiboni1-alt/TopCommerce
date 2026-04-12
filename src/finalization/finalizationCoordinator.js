@@ -190,9 +190,8 @@ async function finalizeThroughCoordinator({
       ssot: getSSOT(),
     });
 
-    clearSession(callSid);
-
     entry?.session?.markTimeline?.("finalization_completed_at");
+    clearSession(callSid);
 
     recordFinalizationEvent({
       callSid,
