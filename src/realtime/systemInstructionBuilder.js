@@ -28,13 +28,28 @@ function buildIntentsContext(intents) {
     .trim();
 }
 
-function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
+function normalizeRuntimeMeta(runtimeMeta, settings) {
+  return {
+    caller_name: safeStr(runtimeMeta?.caller_name) || safeStr(runtimeMeta?.display_name) || "",
+    display_name: safeStr(runtimeMeta?.display_name) || safeStr(runtimeMeta?.caller_name) || "",
+    language_locked: safeStr(runtimeMeta?.language_locked) || safeStr(settings?.DEFAULT_LANGUAGE) || "he",
+    caller_withheld: !!runtimeMeta?.caller_withheld,
+    caller: safeStr(runtimeMeta?.caller),
+    called: safeStr(runtimeMeta?.called),
+    source: safeStr(runtimeMeta?.source),
+    opening_played:
+      runtimeMeta?.opening_played === undefined || runtimeMeta?.opening_played === null
+        ? ""
+        : safeStr(runtimeMeta?.opening_played),
+  };
+}
+
+function buildBaseInstructionFromSSOT(ssot, runtimeMeta) {
   const settings = ssot?.settings || {};
   const promptStack = { ...getPromptStack(), ...(ssot?.prompts || {}) };
   const intents = ssot?.intents || [];
-  const defaultLang = safeStr(runtimeMeta?.language_locked) || safeStr(settings.DEFAULT_LANGUAGE) || "he";
-  const callerName = safeStr(runtimeMeta?.caller_name) || safeStr(runtimeMeta?.display_name) || "";
-  const callerWithheld = !!runtimeMeta?.caller_withheld;
+  const meta = normalizeRuntimeMeta(runtimeMeta, settings);
+  const defaultLang = meta.language_locked;
   const sections = [];
 
   sections.push([
@@ -67,24 +82,6 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
     "- Any customer-specific flow or discovery path must come from PROMPTS/INTENTS/INTENT_SUGGESTIONS/SCRIPT_SUGGESTIONS/KB_SUGGESTIONS, not from hidden business rules.",
   ].join("\n"));
 
-  if (callerName) {
-    sections.push([
-      "CALLER MEMORY POLICY:",
-      `- Known caller name: \"${callerName}\"`,
-      "- Treat it as correct unless the caller explicitly corrects it.",
-      "- Do not ask for the caller name again if it is already known.",
-    ].join("\n"));
-  }
-
-  if (callerWithheld) {
-    sections.push([
-      "WITHHELD NUMBER POLICY:",
-      "- The caller number is withheld/private.",
-      "- If the caller leaves a request or asks for a callback, you MUST collect a callback number explicitly.",
-      "- Do not say you will return to the identified number because there is no usable caller ID.",
-    ].join("\n"));
-  }
-
   ["MASTER_PROMPT", "GUARDRAILS_PROMPT", "KB_PROMPT", "LEAD_CAPTURE_PROMPT", "INTENT_ROUTER_PROMPT"].forEach((key) => {
     if (promptStack[key]) sections.push(`${key}:\n${safeStr(promptStack[key])}`);
   });
@@ -97,8 +94,10 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
 
   const intentSuggestionsContext = buildSuggestionsContext(ssot?.intent_suggestions, "INTENT_SUGGESTIONS_TABLE");
   if (intentSuggestionsContext) sections.push(intentSuggestionsContext);
+
   const scriptSuggestionsContext = buildSuggestionsContext(ssot?.script_suggestions, "SCRIPT_SUGGESTIONS_TABLE");
   if (scriptSuggestionsContext) sections.push(scriptSuggestionsContext);
+
   const kbSuggestionsContext = buildSuggestionsContext(ssot?.kb_suggestions, "KB_SUGGESTIONS_TABLE");
   if (kbSuggestionsContext) sections.push(kbSuggestionsContext);
 
@@ -112,4 +111,54 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
   return sections.filter(Boolean).join("\n\n---\n\n").trim();
 }
 
-module.exports = { buildSystemInstructionFromSSOT };
+function buildDeltaInstruction(runtimeMeta, settings) {
+  const meta = normalizeRuntimeMeta(runtimeMeta, settings);
+  const sections = [];
+
+  if (meta.caller_name) {
+    sections.push([
+      "CALLER MEMORY POLICY:",
+      `- Known caller name: "${meta.caller_name}"`,
+      "- Treat it as correct unless the caller explicitly corrects it.",
+      "- Do not ask for the caller name again if it is already known.",
+    ].join("\n"));
+  }
+
+  if (meta.caller_withheld) {
+    sections.push([
+      "WITHHELD NUMBER POLICY:",
+      "- The caller number is withheld/private.",
+      "- If the caller leaves a request or asks for a callback, you MUST collect a callback number explicitly.",
+      "- Do not say you will return to the identified number because there is no usable caller ID.",
+    ].join("\n"));
+  }
+
+  const runtimeLines = [
+    "RUNTIME CONTEXT:",
+    `- caller=${meta.caller || "unknown"}`,
+    `- called=${meta.called || "unknown"}`,
+    `- source=${meta.source || "unknown"}`,
+  ];
+
+  if (meta.opening_played !== "") {
+    runtimeLines.push(`- opening_played=${meta.opening_played}`);
+  }
+
+  sections.push(runtimeLines.join("\n"));
+
+  return sections.filter(Boolean).join("\n\n---\n\n").trim();
+}
+
+function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
+  const settings = ssot?.settings || {};
+  const baseInstruction = buildBaseInstructionFromSSOT(ssot, runtimeMeta);
+  const deltaInstruction = buildDeltaInstruction(runtimeMeta, settings);
+
+  return [baseInstruction, deltaInstruction].filter(Boolean).join("\n\n---\n\n").trim();
+}
+
+module.exports = {
+  buildBaseInstructionFromSSOT,
+  buildDeltaInstruction,
+  buildSystemInstructionFromSSOT,
+};
