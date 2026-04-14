@@ -11,8 +11,7 @@ const { startCallRecording, hangupCall } = require("../utils/twilioRecordings");
 const { setRecordingForCall, markRecordingStartRequested } = require("../utils/recordingRegistry");
 const { getSSOT } = require("../ssot/ssotClient");
 const { getCallerProfile } = require("../memory/callerMemory");
-const { warmOpeningCache } = require("../logic/openingBuilder");
-const { buildSystemInstructionFromSSOT } = require("../realtime/systemInstructionBuilder");
+const { warmCompiledPromptBundle } = require("../realtime/compiledPromptBundle");
 const { ulaw8kB64ToPcm16kBuffer } = require("../vendor/twilioGeminiAudio");
 const { preprocessInt16, rmsInt16 } = require("../runtime/voice/audioPreprocessor");
 const { TelephonyAec } = require("../runtime/voice/telephonyAec");
@@ -232,29 +231,30 @@ function installTwilioMediaWs(server) {
         try {
           const callerProfile = meta.caller_profile || null;
           const callerName = String(callerProfile?.display_name || "").trim();
-          const openingData = await Promise.resolve(
-            warmOpeningCache({
+          const compiledBundle = await Promise.resolve(
+            warmCompiledPromptBundle({
               ssot,
-              callerName,
+              runtimeMeta: {
+                caller_name: callerName,
+                display_name: callerName,
+                language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
+                caller_withheld: !meta.caller || String(meta.caller || "").trim().toLowerCase() === "anonymous",
+              },
               isReturning: !!callerProfile,
               timeZone: env.TIME_ZONE,
             })
           );
-          const prebuiltOpeningText = String(openingData?.opening || openingData?.text || "").trim();
+          const prebuiltOpeningText = String(compiledBundle?.opening || "").trim();
           if (prebuiltOpeningText) {
             meta.prebuilt_opening_text = prebuiltOpeningText;
-            meta.prebuilt_opening_cache_hit = !!openingData?.cache_hit;
+            meta.prebuilt_opening_cache_hit = !!compiledBundle?.opening_cache_hit;
           }
 
-          const prebuiltSystemInstruction = buildSystemInstructionFromSSOT(ssot, {
-            caller_name: callerName,
-            display_name: callerName,
-            language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
-            caller_withheld: !meta.caller || String(meta.caller || "").trim().toLowerCase() === "anonymous",
-          });
+          const prebuiltSystemInstruction = String(compiledBundle?.system_instruction || "").trim();
           if (prebuiltSystemInstruction) {
             meta.prebuilt_system_instruction = prebuiltSystemInstruction;
           }
+          meta.prebuilt_prompt_bundle_cache_hit = !!compiledBundle?.bundle_cache_hit;
         } catch (e) {
           logger.warn("Failed to prebuild opening/system instruction", {
             callSid,

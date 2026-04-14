@@ -31,6 +31,7 @@ const { finalizeThroughCoordinator } = require("../finalization/finalizationCoor
 const { updateCallerDisplayName } = require("../memory/callerMemory");
 const { hangupCall } = require("../utils/twilioRecordings");
 const { getCachedOpening } = require("../logic/openingBuilder");
+const { getCompiledPromptBundle } = require("../realtime/compiledPromptBundle");
 const { buildSystemInstructionFromSSOT } = require("../realtime/systemInstructionBuilder");
 const { handleBotTranscript, handleUserTranscript } = require("../realtime/transcriptHandlers");
 const { recordCallEvent } = require("../debug/debugLogger");
@@ -364,7 +365,26 @@ class GeminiLiveSession {
       const callerProfile = this.meta?.caller_profile || null;
       const callerName = safeStr(callerProfile?.display_name) || "";
 
-      const prebuiltSystemText = safeStr(this.meta?.prebuilt_system_instruction);
+      let prebuiltSystemText = safeStr(this.meta?.prebuilt_system_instruction);
+      if (!prebuiltSystemText) {
+        const compiledBundle = getCompiledPromptBundle({
+          ssot: this.ssot,
+          runtimeMeta: {
+            caller_name: callerName,
+            display_name: callerName,
+            language_locked: this._langState.lockedLanguage,
+            caller_withheld: this._getCallData().caller_withheld,
+          },
+          isReturning: !!callerProfile,
+          timeZone: this.env.TIME_ZONE,
+        });
+        prebuiltSystemText = safeStr(compiledBundle?.system_instruction);
+        if (!safeStr(this.meta?.prebuilt_opening_text) && safeStr(compiledBundle?.opening)) {
+          this.meta.prebuilt_opening_text = safeStr(compiledBundle.opening);
+          this.meta.prebuilt_opening_cache_hit = !!compiledBundle?.opening_cache_hit;
+        }
+      }
+
       const systemText = prebuiltSystemText || buildSystemInstructionFromSSOT(this.ssot, {
         caller_name: callerName,
         display_name: callerName,
