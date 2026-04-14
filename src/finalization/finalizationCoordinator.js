@@ -5,8 +5,19 @@ const { logger } = require("../utils/logger");
 const { finalizePipeline } = require("../stage4/finalizePipeline");
 const { getEntry, markFinalized, clearSession } = require("../runtime/callRegistry");
 const { tryAcquireFinalize, releaseFinalize } = require("../runtime/finalizeOnce");
-const { recordFinalizationEvent } = require("../debug/debugLogger");
+const {
+  recordFinalizationEvent,
+  recordSnapshotCheckpoint,
+} = require("../debug/debugLogger");
 const { DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
+
+function safeStr(v) {
+  return v === undefined || v === null ? "" : String(v).trim();
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 function applySessionSnapshotUpdate(entry, { source, sessionFinalizeData, conversationLog }) {
   entry.snapshot = {
@@ -29,6 +40,43 @@ function applySessionSnapshotUpdate(entry, { source, sessionFinalizeData, conver
   ) {
     entry.snapshot.call.finalize_reason = source;
   }
+}
+
+function recordFinalizationTimelineCheckpoint({ callSid, entry, key, ts }) {
+  const markerKey = safeStr(key);
+  const markerTs = safeStr(ts) || nowIso();
+  if (!callSid || !markerKey) return null;
+
+  const marked = entry?.session?.markTimeline?.(markerKey, markerTs);
+  if (marked) return marked;
+
+  recordSnapshotCheckpoint({
+    callSid,
+    label: `timeline_${markerKey}`,
+    ts: markerTs,
+    snapshot: {
+      timeline: {
+        call_answered_at: entry?.session?.timeline?.call_answered_at || null,
+        ws_connected_at: entry?.session?.timeline?.ws_connected_at || null,
+        provider_session_ready_at: entry?.session?.timeline?.provider_session_ready_at || null,
+        first_opening_sent_at: entry?.session?.timeline?.first_opening_sent_at || null,
+        first_audio_out_at: entry?.session?.timeline?.first_audio_out_at || null,
+        first_user_audio_at: entry?.session?.timeline?.first_user_audio_at || null,
+        first_user_stable_utterance_at: entry?.session?.timeline?.first_user_stable_utterance_at || null,
+        first_bot_response_at: entry?.session?.timeline?.first_bot_response_at || null,
+        finalization_started_at:
+          markerKey === "finalization_started_at"
+            ? markerTs
+            : entry?.session?.timeline?.finalization_started_at || null,
+        finalization_completed_at:
+          markerKey === "finalization_completed_at"
+            ? markerTs
+            : entry?.session?.timeline?.finalization_completed_at || null,
+      },
+    },
+  });
+
+  return markerTs;
 }
 
 async function finalizeThroughCoordinator({
@@ -54,7 +102,12 @@ async function finalizeThroughCoordinator({
   });
 
   const entry = getEntry(callSid);
-  entry?.session?.markTimeline?.("finalization_started_at");
+  recordFinalizationTimelineCheckpoint({
+    callSid,
+    entry,
+    key: "finalization_started_at",
+    ts: nowIso(),
+  });
 
   if (!entry) {
     logger.warn("finalizationCoordinator missing call", {
@@ -72,6 +125,13 @@ async function finalizeThroughCoordinator({
         trigger_source: source || null,
         reason: "missing_call",
       },
+    });
+
+    recordFinalizationTimelineCheckpoint({
+      callSid,
+      entry: null,
+      key: "finalization_completed_at",
+      ts: nowIso(),
     });
 
     return { ok: false, reason: "missing_call" };
@@ -97,7 +157,12 @@ async function finalizeThroughCoordinator({
         },
       });
 
-      entry?.session?.markTimeline?.("finalization_completed_at");
+      recordFinalizationTimelineCheckpoint({
+        callSid,
+        entry,
+        key: "finalization_completed_at",
+        ts: nowIso(),
+      });
     } catch (e) {
       logger.warn("finalizationCoordinator snapshot-only update failed", {
         callSid,
@@ -116,6 +181,13 @@ async function finalizeThroughCoordinator({
           error: String(e?.message || e),
         },
       });
+
+      recordFinalizationTimelineCheckpoint({
+        callSid,
+        entry,
+        key: "finalization_completed_at",
+        ts: nowIso(),
+      });
     } finally {
       clearSession(callSid);
     }
@@ -133,6 +205,13 @@ async function finalizeThroughCoordinator({
         trigger_source: source || null,
         reason: "finalize_lock_already_acquired",
       },
+    });
+
+    recordFinalizationTimelineCheckpoint({
+      callSid,
+      entry,
+      key: "finalization_completed_at",
+      ts: nowIso(),
     });
 
     return { ok: true, alreadyFinalized: true };
@@ -160,6 +239,13 @@ async function finalizeThroughCoordinator({
         trigger_source: source || null,
         reason: "registry_already_finalized",
       },
+    });
+
+    recordFinalizationTimelineCheckpoint({
+      callSid,
+      entry,
+      key: "finalization_completed_at",
+      ts: nowIso(),
     });
 
     return { ok: true, alreadyFinalized: true };
@@ -192,7 +278,13 @@ async function finalizeThroughCoordinator({
       ssot: getSSOT(),
     });
 
-    entry?.session?.markTimeline?.("finalization_completed_at");
+    recordFinalizationTimelineCheckpoint({
+      callSid,
+      entry,
+      key: "finalization_completed_at",
+      ts: nowIso(),
+    });
+
     clearSession(callSid);
 
     recordFinalizationEvent({
@@ -228,6 +320,13 @@ async function finalizeThroughCoordinator({
         trigger_source: source || null,
         error: String(e?.message || e),
       },
+    });
+
+    recordFinalizationTimelineCheckpoint({
+      callSid,
+      entry,
+      key: "finalization_completed_at",
+      ts: nowIso(),
     });
 
     return { ok: false, reason: String(e) };
