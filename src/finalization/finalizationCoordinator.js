@@ -11,12 +11,12 @@ const {
 } = require("../debug/debugLogger");
 const { DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
 
-function safeStr(v) {
-  return v === undefined || v === null ? "" : String(v).trim();
-}
-
 function nowIso() {
   return new Date().toISOString();
+}
+
+function safeStr(v) {
+  return v === undefined || v === null ? "" : String(v).trim();
 }
 
 function applySessionSnapshotUpdate(entry, { source, sessionFinalizeData, conversationLog }) {
@@ -34,10 +34,7 @@ function applySessionSnapshotUpdate(entry, { source, sessionFinalizeData, conver
     lead: entry.snapshot?.lead || {},
   };
 
-  if (
-    !entry.snapshot.call.finalize_reason &&
-    source
-  ) {
+  if (!entry.snapshot.call.finalize_reason && source) {
     entry.snapshot.call.finalize_reason = source;
   }
 }
@@ -102,6 +99,7 @@ async function finalizeThroughCoordinator({
   });
 
   const entry = getEntry(callSid);
+
   recordFinalizationTimelineCheckpoint({
     callSid,
     entry,
@@ -307,6 +305,7 @@ async function finalizeThroughCoordinator({
       source,
       error: String(e?.message || e),
     });
+
     entry.finalized = false;
     entry.finalizedSource = null;
     releaseFinalize(callSid);
