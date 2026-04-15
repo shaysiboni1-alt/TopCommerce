@@ -7,7 +7,9 @@ class TranscriptStore {
     this.getStableGapMs = typeof getStableGapMs === "function" ? getStableGapMs : (() => 220);
     this.shouldDelayFlush = typeof shouldDelayFlush === "function" ? shouldDelayFlush : (() => false);
     this.mergeChunks = typeof mergeChunks === "function" ? mergeChunks : ((prev, next) => `${prev || ""} ${next || ""}`.trim());
-    this.normalizeText = typeof normalizeText === "function" ? normalizeText : ((value) => ({ raw: String(value || "").trim(), normalized: String(value || "").trim() }));
+    this.normalizeText = typeof normalizeText === "function"
+      ? normalizeText
+      : ((value) => ({ raw: String(value || "").trim(), normalized: String(value || "").trim() }));
     this.buffers = {
       user: this._newBuffer(),
       bot: this._newBuffer(),
@@ -24,9 +26,64 @@ class TranscriptStore {
     };
   }
 
+  _safeStr(value) {
+    return value === undefined || value === null ? "" : String(value).trim();
+  }
+
+  _buildStageEnvelope(rawText, normalizedValue) {
+    const normalizedObj = normalizedValue && typeof normalizedValue === "object"
+      ? normalizedValue
+      : { raw: rawText, normalized: rawText };
+
+    const raw = this._safeStr(rawText);
+    const normalized = this._safeStr(normalizedObj.normalized || normalizedObj.raw || raw);
+    const recovered = this._safeStr(normalizedObj.recovered || normalized);
+    const finalText = this._safeStr(normalizedObj.final || normalizedObj.finalText || recovered || normalized || raw);
+
+    return {
+      raw,
+      normalized,
+      recovered,
+      final: finalText,
+      stage_order: ["raw", "normalized", "recovered", "final"],
+      stage_texts: {
+        raw,
+        normalized,
+        recovered,
+        final: finalText,
+      },
+      stages: {
+        raw: {
+          name: "raw",
+          text: raw,
+          length: raw.length,
+          present: Boolean(raw),
+        },
+        normalized: {
+          name: "normalized",
+          text: normalized,
+          length: normalized.length,
+          present: Boolean(normalized),
+        },
+        recovered: {
+          name: "recovered",
+          text: recovered,
+          length: recovered.length,
+          present: Boolean(recovered),
+        },
+        final: {
+          name: "final",
+          text: finalText,
+          length: finalText.length,
+          present: Boolean(finalText),
+        },
+      },
+    };
+  }
+
   bufferChunk(who, chunk) {
     const holder = this.buffers[who];
-    const value = String(chunk || "").trim();
+    const value = this._safeStr(chunk);
     if (!holder || !value) return { accepted: false };
     if (holder.lastChunk === value) return { accepted: false, duplicate: true, holder };
 
@@ -56,7 +113,7 @@ class TranscriptStore {
       holder.timer = null;
     }
 
-    const rawText = String(holder.text || "").trim();
+    const rawText = this._safeStr(holder.text);
     if (!rawText) {
       holder.text = "";
       holder.lastChunk = "";
@@ -84,7 +141,8 @@ class TranscriptStore {
     holder.firstTs = 0;
 
     const normalized = this.normalizeText(rawText, who, options) || { raw: rawText, normalized: rawText };
-    const finalText = String(normalized.normalized || normalized.raw || "").trim();
+    const stageEnvelope = this._buildStageEnvelope(rawText, normalized);
+    const finalText = this._safeStr(stageEnvelope.final);
     if (!finalText) return null;
 
     const payload = {
@@ -94,6 +152,13 @@ class TranscriptStore {
       normalized,
       finalText,
       forced: !!options.force,
+      raw_text: stageEnvelope.raw,
+      normalized_text: stageEnvelope.normalized,
+      recovered_text: stageEnvelope.recovered,
+      final_text: stageEnvelope.final,
+      stage_order: stageEnvelope.stage_order,
+      stage_texts: stageEnvelope.stage_texts,
+      stages: stageEnvelope.stages,
     };
 
     this.onFlush(payload);
