@@ -94,7 +94,11 @@ function installTwilioMediaWs(server) {
 
       try {
         const outboundPcm = ulaw8kB64ToPcm16kBuffer(ulaw8kB64);
-        const outboundSamples = new Int16Array(outboundPcm.buffer, outboundPcm.byteOffset, outboundPcm.byteLength / 2);
+        const outboundSamples = new Int16Array(
+          outboundPcm.buffer,
+          outboundPcm.byteOffset,
+          outboundPcm.byteLength / 2
+        );
         if (env.MB_AEC_ENABLED) aec.pushReference(outboundSamples);
       } catch {}
 
@@ -178,7 +182,11 @@ function installTwilioMediaWs(server) {
             conversationLog: Array.isArray(snap?.conversationLog) ? snap.conversationLog : [],
             lead: snap?.lead || {},
           }));
-          logger.info("Blocked caller matched", { callSid, caller: customParameters?.caller || null, normalized: blocked.normalized });
+          logger.info("Blocked caller matched", {
+            callSid,
+            caller: customParameters?.caller || null,
+            normalized: blocked.normalized,
+          });
 
           recordCallEvent({
             callSid,
@@ -195,7 +203,9 @@ function installTwilioMediaWs(server) {
           });
 
           await hangupCall(callSid, logger).catch(() => false);
-          try { twilioWs.close(); } catch {}
+          try {
+            twilioWs.close();
+          } catch {}
           return;
         }
 
@@ -204,13 +214,23 @@ function installTwilioMediaWs(server) {
             .then((r) => {
               if (r?.ok && r?.recordingSid) {
                 setRecordingForCall(callSid, { recordingSid: r.recordingSid });
-                logger.info("Recording started + stored in registry", { callSid, recordingSid: r.recordingSid });
+                logger.info("Recording started + stored in registry", {
+                  callSid,
+                  recordingSid: r.recordingSid,
+                });
               } else {
-                logger.info("Recording start skipped/failed (best-effort)", { callSid, ok: r?.ok, reason: r?.reason || null });
+                logger.info("Recording start skipped/failed (best-effort)", {
+                  callSid,
+                  ok: r?.ok,
+                  reason: r?.reason || null,
+                });
               }
             })
             .catch((e) => {
-              logger.warn("Failed to start call recording", { callSid, err: e?.message || String(e) });
+              logger.warn("Failed to start call recording", {
+                callSid,
+                err: e?.message || String(e),
+              });
             });
         }
 
@@ -238,19 +258,32 @@ function installTwilioMediaWs(server) {
                 caller_name: callerName,
                 display_name: callerName,
                 language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
-                caller_withheld: !meta.caller || String(meta.caller || "").trim().toLowerCase() === "anonymous",
+                caller_withheld:
+                  !meta.caller ||
+                  String(meta.caller || "").trim().toLowerCase() === "anonymous",
+                caller: meta.caller || "",
+                called: meta.called || "",
+                source: meta.source || "",
+                opening_played:
+                  customParameters?.opening_played === undefined ||
+                  customParameters?.opening_played === null
+                    ? ""
+                    : String(customParameters.opening_played).trim(),
               },
               isReturning: !!callerProfile,
               timeZone: env.TIME_ZONE,
             })
           );
+
           const prebuiltOpeningText = String(compiledBundle?.opening || "").trim();
           if (prebuiltOpeningText) {
             meta.prebuilt_opening_text = prebuiltOpeningText;
             meta.prebuilt_opening_cache_hit = !!compiledBundle?.opening_cache_hit;
           }
 
-          const prebuiltSystemInstruction = String(compiledBundle?.system_instruction || "").trim();
+          const prebuiltSystemInstruction = String(
+            compiledBundle?.system_instruction || ""
+          ).trim();
           if (prebuiltSystemInstruction) {
             meta.prebuilt_system_instruction = prebuiltSystemInstruction;
           }
@@ -264,7 +297,10 @@ function installTwilioMediaWs(server) {
         }
 
         callSession = new CallSession(meta);
-        callSession?.markTimeline?.("call_answered_at", meta.started_at || new Date().toISOString());
+        callSession?.markTimeline?.(
+          "call_answered_at",
+          meta.started_at || new Date().toISOString()
+        );
         callSession?.markTimeline?.("ws_connected_at");
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
 
@@ -290,7 +326,11 @@ function installTwilioMediaWs(server) {
 
         try {
           const pcmBuf = ulaw8kB64ToPcm16kBuffer(b64);
-          let samples = new Int16Array(pcmBuf.buffer, pcmBuf.byteOffset, pcmBuf.byteLength / 2);
+          let samples = new Int16Array(
+            pcmBuf.buffer,
+            pcmBuf.byteOffset,
+            pcmBuf.byteLength / 2
+          );
 
           if (env.MB_AEC_ENABLED) {
             const aecResult = aec.processNearEnd(samples);
@@ -307,15 +347,29 @@ function installTwilioMediaWs(server) {
           const currentRms = processed.metrics.outputRms || rmsInt16(processed.samples);
           const baseAllowed = !(gemini?.isBargeInAllowed) || gemini.isBargeInAllowed();
           const allowBarge = gemini?.shouldAllowBargeIn
-            ? gemini.shouldAllowBargeIn({ openingPhase: gemini?.isOpeningPhase?.(), baseAllowed, rms: currentRms })
+            ? gemini.shouldAllowBargeIn({
+                openingPhase: gemini?.isOpeningPhase?.(),
+                baseAllowed,
+                rms: currentRms,
+              })
             : baseAllowed;
           interruptionManager.evaluateSpeech({
             rms: currentRms,
             bargeInAllowed: allowBarge,
           });
-          gemini.sendPcm16kBase64(Buffer.from(processed.samples.buffer, processed.samples.byteOffset, processed.samples.byteLength).toString("base64"));
+          gemini.sendPcm16kBase64(
+            Buffer.from(
+              processed.samples.buffer,
+              processed.samples.byteOffset,
+              processed.samples.byteLength
+            ).toString("base64")
+          );
         } catch (e) {
-          logger.debug("Inbound audio preprocess failed; forwarding raw audio", { streamSid, callSid, error: e?.message || String(e) });
+          logger.debug("Inbound audio preprocess failed; forwarding raw audio", {
+            streamSid,
+            callSid,
+            error: e?.message || String(e),
+          });
           gemini.sendUlaw8kFromTwilio(b64);
         }
         return;
@@ -323,7 +377,9 @@ function installTwilioMediaWs(server) {
 
       if (ev === "mark") {
         const pendingPlaybackMarks = interruptionManager.notePlaybackMarkReceived();
-        if (pendingPlaybackMarks === 0 && gemini?.noteAssistantPlaybackStop) gemini.noteAssistantPlaybackStop();
+        if (pendingPlaybackMarks === 0 && gemini?.noteAssistantPlaybackStop) {
+          gemini.noteAssistantPlaybackStop();
+        }
 
         recordCallEvent({
           callSid,
@@ -367,7 +423,11 @@ function installTwilioMediaWs(server) {
       }
 
       if (ev === "connected") {
-        logger.info("Twilio WS event", { event: "connected", streamSid: null, callSid: null });
+        logger.info("Twilio WS event", {
+          event: "connected",
+          streamSid: null,
+          callSid: null,
+        });
       }
     });
 
@@ -389,7 +449,11 @@ function installTwilioMediaWs(server) {
     });
 
     twilioWs.on("error", (err) => {
-      logger.error("Twilio media WS error", { streamSid, callSid, error: err.message });
+      logger.error("Twilio media WS error", {
+        streamSid,
+        callSid,
+        error: err.message,
+      });
       recordCallEvent({
         callSid,
         streamSid,
