@@ -53,13 +53,46 @@ function normalizeNlpInput(nlp) {
     ? { raw: safeStr(nlp), normalized: safeStr(nlp) }
     : (nlp && typeof nlp === "object" ? nlp : {});
 
-  const normalizedObj = normalizeUtterance(base.normalized || base.raw || "");
+  const rawText = safeStr(base.raw_text || base.raw);
+  const normalizedSeed = safeStr(base.normalized_text || base.normalized || rawText);
+  const normalizedObj = normalizeUtterance(normalizedSeed || rawText || "");
+  const raw = safeStr(rawText || normalizedObj.raw);
+  const normalized = safeStr(base.normalized_text || normalizedObj.normalized || base.normalized || raw);
+  const recovered = safeStr(base.recovered_text || normalizedObj.recovered || normalizedObj.normalized || base.normalized || raw);
+  const finalText = safeStr(base.final_text || base.finalText || base.final || recovered || normalized || raw);
+  const stageTexts = {
+    raw,
+    normalized,
+    recovered,
+    final: finalText,
+  };
+
   return {
     ...base,
-    raw: safeStr(base.raw || normalizedObj.raw),
-    normalized: safeStr(normalizedObj.normalized || base.normalized || base.raw),
-    recovered: safeStr(normalizedObj.recovered || normalizedObj.normalized || base.normalized || base.raw),
-    compact: safeStr(normalizedObj.compact || ""),
+    raw,
+    normalized,
+    recovered,
+    final: finalText,
+    finalText,
+    raw_text: raw,
+    normalized_text: normalized,
+    recovered_text: recovered,
+    final_text: finalText,
+    stage_order: Array.isArray(base.stage_order) && base.stage_order.length
+      ? base.stage_order
+      : ["raw", "normalized", "recovered", "final"],
+    stage_texts: base.stage_texts && typeof base.stage_texts === "object"
+      ? { ...stageTexts, ...base.stage_texts }
+      : stageTexts,
+    stages: base.stages && typeof base.stages === "object"
+      ? base.stages
+      : {
+          raw: { name: "raw", text: raw, length: raw.length, present: Boolean(raw) },
+          normalized: { name: "normalized", text: normalized, length: normalized.length, present: Boolean(normalized) },
+          recovered: { name: "recovered", text: recovered, length: recovered.length, present: Boolean(recovered) },
+          final: { name: "final", text: finalText, length: finalText.length, present: Boolean(finalText) },
+        },
+    compact: safeStr(base.compact || normalizedObj.compact || ""),
     lang: safeStr(base.lang || normalizedObj.lang),
     lang_confidence: Number.isFinite(Number(base.lang_confidence))
       ? Number(base.lang_confidence)
@@ -213,7 +246,14 @@ function handleUserTranscript(session, nlp) {
 
     if (session._awaitingFreshTurnAfterInterrupt) session._awaitingFreshTurnAfterInterrupt = false;
     if (session._hardClosingMode && session._ignoreLooseUserTurnsUntilTs > Date.now()) {
-      logger.info("USER_TURN_IGNORED_DURING_CLOSING", { ...session.meta, text: normalizedNlp.raw });
+      logger.info("USER_TURN_IGNORED_DURING_CLOSING", {
+        ...session.meta,
+        text: normalizedNlp.raw,
+        raw_text: normalizedNlp.raw_text,
+        normalized_text: normalizedNlp.normalized_text,
+        recovered_text: normalizedNlp.recovered_text,
+        final_text: normalizedNlp.final_text,
+      });
       return true;
     }
 
@@ -265,8 +305,8 @@ function handleUserTranscript(session, nlp) {
               safeCommitRuntimeName(session, recovery.name, recovery.reason || "name_confirmation_yes", recovery.sourceUtterance || normalizedNlp.raw);
               return true;
             }
-            if (recovery.text) {
-              safeImmediateText(session, recovery.text, recovery.promptKind === "name_confirm" ? "NAME_CONFIRMATION_SENT" : "NAME_HEARING_REPAIR_SENT");
+            if (recovery.action === "confirm_candidate" && recovery.text) {
+              safeImmediateText(session, recovery.text, "NAME_CONFIRMATION_SENT");
               return true;
             }
           }
@@ -274,49 +314,49 @@ function handleUserTranscript(session, nlp) {
       }
     } catch {}
 
-    if (!safeStr(session.meta?.caller_profile?.display_name || session._passiveCtx?.name)) {
+    try {
       const explicitHebName = collapseHebrewSpacing(normalizedUserText).match(
-        /(?:^|\b)(?:שלום\s+אני|אני|שמי|קוראים לי|השם שלי(?:\s+זה)?)\s+([\u0590-\u05FF]{2,}(?:\s+[\u0590-\u05FF]{2,})?)$/u
+        /(?:קוראים לי|שמי|השם שלי|אני)\s+([\u0590-\u05FF]{2,}(?:\s+[\u0590-\u05FF]{2,}){0,2})/u
       );
-      if (explicitHebName && explicitHebName[1]) {
-        const directName = normalizeLikelyName(explicitHebName[1]);
-        if (directName && hasHebrewLetters(directName)) {
+      const directName = normalizeLikelyName(explicitHebName?.[1] || "");
+      if (directName && hasHebrewLetters(directName)) {
+        const ctxArr = getConversationLog(session);
+        let lastBot = "";
+        for (let i = ctxArr.length - 2; i >= 0; i -= 1) {
+          const it = ctxArr[i];
+          if (it?.role === "assistant" && it.text) {
+            lastBot = String(it.text);
+            break;
+          }
+        }
+        const askedForName = lastBotAskedForName(lastBot);
+        if (askedForName || /קוראים לי|שמי|השם שלי/u.test(normalizedUserText)) {
           clearReportPromptLoopForCapturedName(session);
           safeCommitRuntimeName(session, directName, "explicit_name_phrase_fallback", normalizedNlp.raw);
           return true;
         }
       }
-    }
+    } catch {}
 
-    const hasReportsIntent = hasConfiguredIntent(session, "reports_request");
-    ensureReportState(session);
     const previousReportState = cloneReportState(session);
+    const hasReportsIntent = hasConfiguredIntent(session, "reports_request");
     if (hasReportsIntent) applyReportEntities(session, normalizedUserText);
 
     const callbackText = normalizedUserText;
     if (session._awaitingCallbackConfirmation) {
-      if (refersToSameCallerNumber(callbackText)) {
-        const question = maybeGetNextReportQuestion(session, previousReportState);
-        const nextQuestion = question ? question.text : "איך אפשר לעזור?";
-        safeCallbackConfirmed(session, nextQuestion);
-        return true;
-      }
-
-      if (refersToOtherNumber(callbackText) || normalizeDigitsLoose(callbackText).length >= 8) {
+      if (refersToSameCallerNumber(callbackText, safeStr(session.meta?.caller))) {
+        session._callbackConfirmed = true;
         session._awaitingCallbackConfirmation = false;
-        const digits = normalizeDigitsLoose(callbackText);
-        if (digits.length >= 8) {
-          const tpl = safeStr(session.ssot?.settings?.CALLBACK_CONFIRM_NEW_NUMBER_TEMPLATE);
-          if (tpl) {
-            safeImmediateText(session, applyTemplate(tpl, { DIGITS_SPOKEN: digitsSpoken(digits) }), "CALLBACK_NUMBER_CONFIRM_SENT");
-            return true;
-          }
+        if (!safeCallbackConfirmed(session, null)) {
+          const closing = safeStr(session.ssot?.settings?.CLOSING_callback)
+            || safeStr(session.ssot?.settings?.CLOSING_GOODBYE)
+            || "תודה רבה, רשמתי את הפרטים. נציג יחזור אליכם בהקדם.";
+          safeImmediateText(session, closing, "CALLBACK_CONFIRMED_SENT");
         }
-        safeImmediateText(session, safeStr(session.ssot?.settings?.CALLBACK_ALT_NUMBER_PHRASE) || "אין בעיה, לאיזה מספר תרצו שנחזור?", "CALLBACK_ALT_NUMBER_SENT");
         return true;
       }
 
-      if (isNegativeUtterance(callbackText)) {
+      if (refersToOtherNumber(callbackText) || isNegativeUtterance(callbackText)) {
         session._awaitingCallbackConfirmation = false;
         safeImmediateText(session, safeStr(session.ssot?.settings?.CALLBACK_ALT_NUMBER_PHRASE) || "אין בעיה, לאיזה מספר תרצו שנחזור?", "CALLBACK_ALT_NUMBER_SENT");
         return true;
@@ -341,6 +381,12 @@ function handleUserTranscript(session, nlp) {
       text: normalizedNlp.raw,
       normalized: normalizedNlp.normalized,
       recovered: normalizedNlp.recovered,
+      raw_text: normalizedNlp.raw_text,
+      normalized_text: normalizedNlp.normalized_text,
+      recovered_text: normalizedNlp.recovered_text,
+      final_text: normalizedNlp.final_text,
+      stage_order: normalizedNlp.stage_order,
+      stages: normalizedNlp.stages,
       lang: normalizedNlp.lang,
       language_locked: session._langState?.lockedLanguage,
       intent,
@@ -429,29 +475,49 @@ function handleBotTranscript(session, nlp) {
         session._awaitingNameModelEcho ? "awaiting_name_model_echo" : "bot_name_echo",
         session._pendingNameSourceUtterance || recentUser || botText
       );
+      session._awaitingNameModelEcho = false;
+      session._pendingNameSourceUtterance = "";
       return true;
     }
 
-    if (hasConfiguredIntent(session, "reports_request") && session._lastDetectedIntent === "reports_request" && /^דו["']?חות?(?:\s+רווח\s+והפסד)?[.!?]?$/u.test(botText)) {
-      const prevState = cloneReportState(session);
-      const question = maybeGetNextReportQuestion(session, prevState);
-      if (question) safeImmediateText(session, question.text, question.label);
-      return true;
+    if (session._awaitingCallbackDigits) {
+      const digits = normalizeDigitsLoose(botText);
+      const askedQuestion = safeStr(session._pendingCallbackDigitsQuestion || "");
+      if (digits.length >= 9) {
+        session._awaitingCallbackDigits = false;
+        session._pendingCallbackDigitsQuestion = "";
+        session._call = session._call || {};
+        session._call.callback_number = digits;
+        const confirmTemplate = safeStr(session.ssot?.settings?.CALLBACK_CONFIRM_NEW_NUMBER_TEMPLATE)
+          || "רק לוודא, המספר הוא {DIGITS_SPOKEN}. זה נכון?";
+        const text = applyTemplate(confirmTemplate, { DIGITS_SPOKEN: digitsSpoken(digits) });
+        safeImmediateText(session, text, "CALLBACK_NEW_NUMBER_CONFIRM_SENT");
+        session._awaitingCallbackConfirmation = true;
+        session._callbackConfirmed = false;
+        return true;
+      }
+
+      if (askedQuestion) {
+        const retryPhrase = safeStr(session.ssot?.settings?.CALLBACK_RETRY_PHRASE)
+          || "סליחה, לא שמעתי טוב, אנא חיזרו על המספר באופן רציף או ללא עצירה.";
+        safeImmediateText(session, retryPhrase, "CALLBACK_NEW_NUMBER_RETRY_SENT");
+        return true;
+      }
     }
 
-    if (/(לחזור למספר|לחזור אל המספר|לחזור למספר המזוהה|האם לחזור למספר|שנחזור למספר)/u.test(botText)) {
-      session._awaitingCallbackConfirmation = true;
-    }
+    if (isClosingUtterance(botText)) {
+      session._hardClosingMode = true;
+      session._ignoreLooseUserTurnsUntilTs = Date.now() + 1500;
 
-    const sessionEnv = getSessionEnv(session);
-    if (sessionEnv.FORCE_HANGUP_AFTER_CLOSE && !session._hangupScheduled && isClosingUtterance(botText, session.ssot)) {
-      const callSid = getCallSid(session);
-      if (callSid) {
-        session._hangupScheduled = true;
-        const graceMs = Math.max(15000, Number(sessionEnv.HANGUP_AFTER_CLOSE_GRACE_MS || 15000));
-        setTimeout(() => {
-          hangupCall(callSid, logger).catch(() => {});
-        }, graceMs);
+      const forceHangup = String(session.ssot?.settings?.FORCE_HANGUP_AFTER_CLOSE || "").toLowerCase() === "true";
+      if (forceHangup) {
+        const callSid = getCallSid(session);
+        const graceMs = Math.max(0, Number(session.ssot?.settings?.MB_END_CALL_DELAY_MS || 1200) || 1200);
+        if (callSid) {
+          setTimeout(() => {
+            hangupCall(callSid, logger).catch(() => false);
+          }, graceMs);
+        }
         logger.info("Proactive hangup scheduled", { ...session.meta, callSid, delay_ms: graceMs });
       }
     }
@@ -466,4 +532,7 @@ function handleBotTranscript(session, nlp) {
   }
 }
 
-module.exports = { handleBotTranscript, handleUserTranscript };
+module.exports = {
+  handleUserTranscript,
+  handleBotTranscript,
+};
