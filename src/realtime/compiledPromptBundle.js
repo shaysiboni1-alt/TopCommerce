@@ -21,6 +21,13 @@ function buildRuntimeMeta(runtimeMeta) {
     display_name: safeStr(runtimeMeta?.display_name || runtimeMeta?.caller_name),
     language_locked: safeStr(runtimeMeta?.language_locked) || "he",
     caller_withheld: !!runtimeMeta?.caller_withheld,
+    caller: safeStr(runtimeMeta?.caller),
+    called: safeStr(runtimeMeta?.called),
+    source: safeStr(runtimeMeta?.source),
+    opening_played:
+      runtimeMeta?.opening_played === undefined || runtimeMeta?.opening_played === null
+        ? ""
+        : safeStr(runtimeMeta?.opening_played),
   };
 }
 
