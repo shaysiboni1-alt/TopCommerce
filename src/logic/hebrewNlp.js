@@ -210,15 +210,46 @@ function joinCommonHebrewFragments(text) {
     "שם",
     "יש",
     "אין",
+    "או",
   ]);
   const JOINABLE_PREFIX_LETTERS = new Set(["ב", "ל", "כ", "ו", "ש", "מ", "ה", "ת"]);
+  const SAFE_GLUE_WORDS = new Set([
+    "או",
+    "של",
+    "עם",
+    "על",
+    "אל",
+    "אם",
+    "גם",
+    "כל",
+    "מה",
+    "מי",
+    "מן",
+    "לא",
+    "כן",
+  ]);
 
   const isPlainHebrewToken = (part) => /^[א-ת]+$/u.test(safeStr(part).trim());
   const isJoinableHebrewPart = (part) => {
     const t = safeStr(part).trim();
     return !!t && isPlainHebrewToken(t) && !NON_JOINABLE_SHORT_WORDS.has(t);
   };
+  const splitTrailingGlueWord = (token) => {
+    const t = safeStr(token).trim();
+    if (!isPlainHebrewToken(t) || t.length < 5) return null;
 
+    for (const glueWord of SAFE_GLUE_WORDS) {
+      if (!t.endsWith(glueWord) || t === glueWord) continue;
+      const base = t.slice(0, -glueWord.length);
+      if (!base || base.length < 2) continue;
+      if (!isPlainHebrewToken(base)) continue;
+      if (NON_JOINABLE_SHORT_WORDS.has(base)) continue;
+      if (base.endsWith("ו") || base.endsWith("ש")) continue;
+      return `${base} ${glueWord}`;
+    }
+
+    return null;
+  };
   const reconstructSplitHebrewTokens = (input) => {
     const tokens = safeStr(input).split(/\s+/g).filter(Boolean);
     if (!tokens.length) return input;
@@ -246,7 +277,8 @@ function joinCommonHebrewFragments(text) {
         isJoinableHebrewPart(current) &&
         isJoinableHebrewPart(next) &&
         next.length >= 1 &&
-        next.length <= 2
+        next.length <= 2 &&
+        !SAFE_GLUE_WORDS.has(next)
       ) {
         out.push(`${current}${next}`);
         i += 2;
@@ -267,6 +299,29 @@ function joinCommonHebrewFragments(text) {
 
       out.push(current);
       i += 1;
+    }
+
+    return out.join(" ");
+  };
+  const splitAccidentallyGluedHebrewWords = (input) => {
+    const tokens = safeStr(input).split(/\s+/g).filter(Boolean);
+    if (!tokens.length) return input;
+
+    const out = [];
+
+    for (const token of tokens) {
+      if (!isPlainHebrewToken(token)) {
+        out.push(token);
+        continue;
+      }
+
+      const gluedSplit = splitTrailingGlueWord(token);
+      if (gluedSplit) {
+        out.push(gluedSplit);
+        continue;
+      }
+
+      out.push(token);
     }
 
     return out.join(" ");
@@ -295,6 +350,12 @@ function joinCommonHebrewFragments(text) {
 
   for (let i = 0; i < 3; i += 1) {
     const next = reconstructSplitHebrewTokens(s);
+    if (next === s) break;
+    s = next;
+  }
+
+  for (let i = 0; i < 2; i += 1) {
+    const next = splitAccidentallyGluedHebrewWords(s);
     if (next === s) break;
     s = next;
   }
