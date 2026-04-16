@@ -1,5 +1,21 @@
 "use strict";
 
+const {
+  joinCommonHebrewFragments,
+  normalizeHebrewBusinessTerms,
+} = require("../logic/hebrewNlp");
+
+function _applyHebrewRecovery(text) {
+  if (!text) return text;
+  try {
+    let s = joinCommonHebrewFragments(text);
+    s = normalizeHebrewBusinessTerms(s);
+    return s || text;
+  } catch {
+    return text;
+  }
+}
+
 class TranscriptStore {
   constructor({ onFlush, getFlushDelayMs, getStableGapMs, shouldDelayFlush, mergeChunks, normalizeText }) {
     this.onFlush = typeof onFlush === "function" ? onFlush : () => {};
@@ -37,7 +53,19 @@ class TranscriptStore {
 
     const raw = this._safeStr(rawText);
     const normalized = this._safeStr(normalizedObj.normalized || normalizedObj.raw || raw);
-    const recovered = this._safeStr(normalizedObj.recovered || normalized);
+
+    // ── Hebrew Recovery Layer (Task 3.2) ──────────────────────────────
+    // Apply joinCommonHebrewFragments + normalizeHebrewBusinessTerms on
+    // top of normalized to produce a deeper-corrected recovered stage.
+    // Falls back to normalized if recovery produces nothing.
+    const recoveredCandidate = this._safeStr(normalizedObj.recovered || "");
+    const recovered = this._safeStr(
+      recoveredCandidate
+        ? _applyHebrewRecovery(recoveredCandidate)
+        : _applyHebrewRecovery(normalized) || normalized
+    );
+    // ─────────────────────────────────────────────────────────────────
+
     const finalText = this._safeStr(normalizedObj.final || normalizedObj.finalText || recovered || normalized || raw);
 
     return {
