@@ -166,15 +166,6 @@ const PHRASE_FIXES = [
   ["ו הפ ס ד", "והפסד"],
   ["ש יא", "שהיא"],
   ["א פשר", "אפשר"],
-
-  // ===== הוספה מינימלית בלבד =====
-  ["אמ רתי", "אמרתי"],
-  ["אמ ר תי", "אמרתי"],
-  ["מת ע ניין", "מתעניין"],
-  ["מת ע נ יין", "מתעניין"],
-  ["מע וניין", "מעוניין"],
-  ["מע ו ניין", "מעוניין"],
-  ["מע וניינת", "מעוניינת"],
 ];
 
 function joinSplitDigits(text) {
@@ -190,6 +181,96 @@ function joinSplitDigits(text) {
 function joinCommonHebrewFragments(text) {
   let s = safeStr(text);
   if (!s || !HEBREW_CHAR_RE.test(s)) return s;
+
+  const NON_JOINABLE_SHORT_WORDS = new Set([
+    "אני",
+    "אתה",
+    "את",
+    "הוא",
+    "היא",
+    "אנחנו",
+    "הם",
+    "הן",
+    "זה",
+    "זאת",
+    "זו",
+    "לא",
+    "כן",
+    "עם",
+    "על",
+    "אל",
+    "של",
+    "כל",
+    "גם",
+    "אם",
+    "כי",
+    "מה",
+    "מי",
+    "פה",
+    "שם",
+    "יש",
+    "אין",
+  ]);
+  const JOINABLE_PREFIX_LETTERS = new Set(["ב", "ל", "כ", "ו", "ש", "מ", "ה", "ת"]);
+
+  const isPlainHebrewToken = (part) => /^[א-ת]+$/u.test(safeStr(part).trim());
+  const isJoinableHebrewPart = (part) => {
+    const t = safeStr(part).trim();
+    return !!t && isPlainHebrewToken(t) && !NON_JOINABLE_SHORT_WORDS.has(t);
+  };
+
+  const reconstructSplitHebrewTokens = (input) => {
+    const tokens = safeStr(input).split(/\s+/g).filter(Boolean);
+    if (!tokens.length) return input;
+
+    const out = [];
+
+    for (let i = 0; i < tokens.length; ) {
+      const current = tokens[i];
+      const next = tokens[i + 1];
+      const nextNext = tokens[i + 2];
+
+      if (
+        isJoinableHebrewPart(current) &&
+        isPlainHebrewToken(next) &&
+        next.length === 1 &&
+        isJoinableHebrewPart(nextNext) &&
+        nextNext.length <= 5
+      ) {
+        out.push(`${current}${next}${nextNext}`);
+        i += 3;
+        continue;
+      }
+
+      if (
+        isJoinableHebrewPart(current) &&
+        isJoinableHebrewPart(next) &&
+        next.length >= 1 &&
+        next.length <= 2
+      ) {
+        out.push(`${current}${next}`);
+        i += 2;
+        continue;
+      }
+
+      if (
+        isPlainHebrewToken(current) &&
+        current.length === 1 &&
+        JOINABLE_PREFIX_LETTERS.has(current) &&
+        isJoinableHebrewPart(next) &&
+        next.length >= 2
+      ) {
+        out.push(`${current}${next}`);
+        i += 2;
+        continue;
+      }
+
+      out.push(current);
+      i += 1;
+    }
+
+    return out.join(" ");
+  };
 
   s = applyPhraseMap(s, PHRASE_FIXES);
 
@@ -212,8 +293,11 @@ function joinCommonHebrewFragments(text) {
   s = s.replace(/\bל\s+קבל\b/gu, "לקבל");
   s = s.replace(/\bו\s+הפסד\b/gu, "והפסד");
 
-  s = s.replace(/\b([א-ת])\s+([א-ת]{2,})\b/gu, "$1$2");
-  s = s.replace(/\b([א-ת]{2,})\s+([א-ת])\b/gu, "$1$2");
+  for (let i = 0; i < 3; i += 1) {
+    const next = reconstructSplitHebrewTokens(s);
+    if (next === s) break;
+    s = next;
+  }
 
   s = joinSplitDigits(s);
 
