@@ -1024,7 +1024,14 @@ class GeminiLiveSession {
       data: {
         who,
         role,
-        text: finalText,
+        // ── Stage envelope (Task 3.1) ──────────────────────────────────
+        raw_text: payload.raw_text || safeStr(rawText),
+        normalized_text: payload.normalized_text || safeStr(normalized?.normalized || normalized?.raw),
+        recovered_text: payload.recovered_text || safeStr(normalized?.recovered || normalized?.normalized),
+        final_text: payload.final_text || finalText,
+        stage_order: payload.stage_order || ["raw", "normalized", "recovered", "final"],
+        stages: payload.stages || null,
+        // ─────────────────────────────────────────────────────────────
         raw_length: safeStr(rawText).length,
         normalized_length: finalText.length,
       },
@@ -1058,14 +1065,16 @@ class GeminiLiveSession {
 
         this._scheduleHangupAfterAssistantDone();
       }
-      handleBotTranscript(this, normalized);
+      // ── FIX (Task 3.1): pass full payload instead of normalized only ──
+      handleBotTranscript(this, payload);
       this._orchestrator?.syncFromCall?.();
       return;
     }
 
     this.callSession?.markTimeline?.("first_user_stable_utterance_at");
     this._applyLanguageDecision(normalized);
-    handleUserTranscript(this, normalized, {
+    // ── FIX (Task 3.1): pass full payload instead of normalized only ──
+    handleUserTranscript(this, payload, {
       onNameDetected: (name, reason, sourceUtterance) =>
         this._commitRuntimeName(name, reason, sourceUtterance),
       onNeedRetryPrompt: (intentId) => this._sendNaturalRetryForIntent(intentId),
