@@ -4,7 +4,7 @@
 const WebSocket = require("ws");
 const { logger } = require("../utils/logger");
 const { env } = require("../config/env");
-const { GeminiLiveSession } = require("../vendor/geminiLiveSession");
+const { createGeminiSessionAdapter } = require("../provider/geminiSessionAdapter");
 const { CallSession } = require("../runtime/callSession");
 const { InterruptionManager } = require("../runtime/interruptionManager");
 const { startCallRecording, hangupCall } = require("../utils/twilioRecordings");
@@ -304,7 +304,7 @@ function installTwilioMediaWs(server) {
         callSession?.markTimeline?.("ws_connected_at");
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
 
-        gemini = new GeminiLiveSession({
+        gemini = createGeminiSessionAdapter({
           meta,
           ssot,
           callSession,
@@ -400,6 +400,7 @@ function installTwilioMediaWs(server) {
 
       if (ev === "mark") {
         const pendingPlaybackMarks = interruptionManager.notePlaybackMarkReceived();
+        if (gemini?.notePlaybackMarkReceived) gemini.notePlaybackMarkReceived();
         if (pendingPlaybackMarks === 0 && gemini?.noteAssistantPlaybackStop) {
           gemini.noteAssistantPlaybackStop();
         }
@@ -437,6 +438,7 @@ function installTwilioMediaWs(server) {
           conversationLog: Array.isArray(snap?.conversationLog) ? snap.conversationLog : [],
           lead: snap?.lead || {},
         }));
+        if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "completed", endedAt: new Date().toISOString() });
         if (!stopped && gemini) {
           stopped = true;
           gemini.endInput();
@@ -465,6 +467,7 @@ function installTwilioMediaWs(server) {
         level: "info",
         data: {},
       });
+      if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "completed", endedAt: new Date().toISOString() });
       if (!stopped && gemini) {
         stopped = true;
         gemini.stop();
@@ -486,6 +489,7 @@ function installTwilioMediaWs(server) {
         level: "error",
         data: { error: err.message },
       });
+      if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "failed", endedAt: new Date().toISOString() });
       if (!stopped && gemini) {
         stopped = true;
         gemini.stop();
