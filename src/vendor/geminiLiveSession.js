@@ -1039,7 +1039,18 @@ class GeminiLiveSession {
 
     if (this.onTranscript) {
       try {
-        this.onTranscript({ who, text: finalText });
+        this.onTranscript({
+          who,
+          role,
+          text: finalText,
+          raw_text: payload.raw_text || safeStr(rawText),
+          normalized_text: payload.normalized_text || safeStr(normalized?.normalized || normalized?.raw),
+          recovered_text: payload.recovered_text || safeStr(normalized?.recovered || normalized?.normalized),
+          final_text: payload.final_text || finalText,
+          stage_order: payload.stage_order || ["raw", "normalized", "recovered", "final"],
+          stage_texts: payload.stage_texts || null,
+          stages: payload.stages || null,
+        });
       } catch {}
     }
 

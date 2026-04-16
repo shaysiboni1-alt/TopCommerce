@@ -310,8 +310,31 @@ function installTwilioMediaWs(server) {
           callSession,
           onGeminiAudioUlaw8kBase64: (ulawB64) => sendToTwilioMedia(ulawB64),
           onGeminiText: (t) => logger.debug("Gemini text", { streamSid, callSid, t }),
-          onTranscript: ({ who, text }) => {
-            logger.info(`TRANSCRIPT ${who}`, { streamSid, callSid, text });
+          onTranscript: ({
+            who,
+            text,
+            raw_text,
+            normalized_text,
+            recovered_text,
+            final_text,
+            stage_order,
+            stage_texts,
+            stages,
+          }) => {
+            logger.info(`TRANSCRIPT ${who}`, {
+              streamSid,
+              callSid,
+              text,
+              raw_text: raw_text || text || "",
+              normalized_text: normalized_text || text || "",
+              recovered_text: recovered_text || normalized_text || text || "",
+              final_text: final_text || text || "",
+              stage_order: Array.isArray(stage_order) && stage_order.length
+                ? stage_order
+                : ["raw", "normalized", "recovered", "final"],
+              stage_texts: stage_texts || null,
+              stages: stages || null,
+            });
           },
         });
 
