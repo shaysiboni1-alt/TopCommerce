@@ -237,6 +237,65 @@ function hasConfiguredIntent(session, intentId) {
   return intents.some((it) => safeStr(it?.intent_id) === target);
 }
 
+function getApprovedScriptText(session, scriptKey, fallback = "") {
+  const target = safeStr(scriptKey);
+  const rows = Array.isArray(session?.ssot?.script_suggestions) ? session.ssot.script_suggestions : [];
+  for (const row of rows) {
+    if (safeStr(row?.script_key) !== target) continue;
+    const approved = safeStr(row?.approved || row?.Approved || row?.סטטוס || row?.status).toLowerCase();
+    if (approved && !["true", "1", "yes", "מאושר"].includes(approved)) continue;
+    const text = safeStr(row?.suggested_text || row?.text || row?.content);
+    if (text) return text;
+  }
+  return safeStr(fallback);
+}
+
+function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
+  if (!session || typeof session !== "object") return null;
+  if (session._awaitingCallbackConfirmation || session._callbackConfirmed || session._hardClosingMode) return null;
+
+  const mem = session._orchestrator?.memory?.snapshot?.() || {};
+  const ssotSettings = session.ssot?.settings || {};
+  const intentId = safeStr(intent?.intent_id || "other");
+  const callerKnown = !!safeStr(session.meta?.caller_profile?.display_name || mem.callerName);
+  const hasName = !!(callerKnown || mem.collectedFields?.name);
+  const hasSubject = !!mem.collectedFields?.subject;
+  const looksMeaningful = safeStr(normalizedUserText).replace(/\s+/g, "").length >= 6;
+
+  const askSegment = getApprovedScriptText(session, "ASK_NEW_SEGMENT", "אמרו לי בבקשה האם אתם לקוחות עסקיים או פרטיים");
+  const askName = getApprovedScriptText(session, "ASK_NAME", "הבנתי, תודה. אמרו לי מה השם בבקשה");
+  const askProduct = getApprovedScriptText(session, "ASK_PRODUCT_INTEREST", "נהדר, אשמח שתפרטו לי באיזה מוצר או שירות שלנו אתם מתעניינים");
+  const askNeedReturning = getApprovedScriptText(session, "ASK_EXISTING_NEED", "איזה כיף לשמוע מכם שוב, אמרו לי בבקשה במה אפשר לעזור");
+  const askCallback = safeStr(ssotSettings.CALLBACK_ASK_PHRASE) || "אוקיי, תרצו שנחזור למספר ממנו התקשרתם או למספר אחר?";
+
+  if (intentId === "new_customer") {
+    return { text: askSegment, label: "FLOW_ASK_SEGMENT_SENT" };
+  }
+
+  if ((intentId === "business_customer" || intentId === "private_customer") && !hasName) {
+    return { text: askName, label: "FLOW_ASK_NAME_SENT" };
+  }
+
+  if ((intentId === "business_customer" || intentId === "private_customer") && hasName) {
+    return { text: askProduct, label: "FLOW_ASK_PRODUCT_SENT" };
+  }
+
+  if (intentId === "existing_customer" && !hasSubject) {
+    return { text: askNeedReturning, label: "FLOW_ASK_EXISTING_NEED_SENT" };
+  }
+
+  if (intentId === "product_interest") {
+    if (!hasName && !callerKnown) return { text: askName, label: "FLOW_ASK_NAME_SENT" };
+    return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+  }
+
+  if (callerKnown && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction") {
+    return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+  }
+
+  return null;
+}
+
 function handleUserTranscript(session, nlp) {
   try {
     if (!session || typeof session !== "object") return false;
@@ -258,20 +317,6 @@ function handleUserTranscript(session, nlp) {
     }
 
     const normalizedUserText = stripNoiseMarkers(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw);
-
-    if (session._orchestrator?.shouldCommitUserText && !session._orchestrator.shouldCommitUserText(normalizedUserText)) {
-      logger.info("USER_TURN_DEFERRED_LOW_CONFIDENCE", {
-        ...session.meta,
-        text: normalizedNlp.raw,
-        normalized_text: normalizedNlp.normalized_text,
-        recovered_text: normalizedNlp.recovered_text,
-        final_text: normalizedNlp.final_text,
-      });
-      try {
-        session._orchestrator?.noteLowConfidenceUserText?.(normalizedUserText);
-      } catch {}
-      return true;
-    }
 
     try {
       const callerId = safeStr(session.meta?.caller) || "";
@@ -405,6 +450,16 @@ function handleUserTranscript(session, nlp) {
       language_locked: session._langState?.lockedLanguage,
       intent,
     });
+
+    const structuredFollowup = maybeGetStructuredFollowup(session, normalizedUserText, intent);
+    if (structuredFollowup?.text) {
+      if (structuredFollowup.callback) {
+        session._awaitingCallbackConfirmation = true;
+        session._orchestrator?.noteCallbackAwaiting?.(true);
+      }
+      safeImmediateText(session, structuredFollowup.text, structuredFollowup.label || "FLOW_FOLLOWUP_SENT");
+      return true;
+    }
 
     const wantsCallback = containsCallbackRequest(normalizedUserText) || intent?.intent_id === "callback_request";
     const reportIntent = hasReportsIntent && (intent?.intent_id === "reports_request" ||

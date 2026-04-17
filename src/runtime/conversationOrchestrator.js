@@ -191,16 +191,6 @@ class ConversationOrchestrator {
     return this.turnManager.getSuggestedStableGapMs(baseMs);
   }
 
-  shouldCommitUserText(text) {
-    return this.turnManager.shouldCommitUserText(text);
-  }
-
-  noteLowConfidenceUserText(text) {
-    this.turnManager.noteLowConfidenceUserTurn();
-    this._record("LOW_CONFIDENCE_USER_TEXT", { text: safeStr(text) || null }, "info");
-    this._syncSnapshot();
-  }
-
   shouldAllowBargeIn(args) {
     return this.audioPolicy.shouldAllowBargeIn(args);
   }

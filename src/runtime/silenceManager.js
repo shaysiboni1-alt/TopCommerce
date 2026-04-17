@@ -28,23 +28,12 @@ class SilenceManager {
 
   _buildPrompt(level) {
     const settings = this.ssot?.settings || {};
-    const context = this.memory?.getSilenceContext?.() || "general";
     const base1 = safeStr(settings.SILENCE_PROMPT_1 || this.env.SILENCE_PROMPT_1) || "רק לבדוק שאתם עדיין איתי, במה אפשר לעזור?";
     const base2 = safeStr(settings.SILENCE_PROMPT_2 || this.env.SILENCE_PROMPT_2) || "אם נוח, תגידו לי בקצרה מה הפנייה.";
     const base3 = safeStr(settings.SILENCE_PROMPT_3 || this.env.SILENCE_PROMPT_3) || "אם תרצו, אפשר לסיים כאן או לתאם שיחזרו אליכם.";
 
-    if (level === 1) {
-      if (context === "opening") return "שומעת אתכם. איך קוראים לכם בבקשה?";
-      if (context === "lead") return "קחו רגע, וכשתרצו תגידו לי בקצרה במה מדובר.";
-      if (context === "callback") return "בשמחה. רק להגיד לי אם לחזור למספר הזה או למספר אחר.";
-      return base1;
-    }
-    if (level === 2) {
-      if (context === "opening") return "רק כדי שאוכל לרשום נכון, איך קוראים לכם?";
-      if (context === "lead") return "כדי שאעביר פנייה מדויקת, מה הנושא בקצרה?";
-      if (context === "callback") return "רק לוודא את החזרה: למספר שממנו התקשרתם או למספר אחר?";
-      return base2;
-    }
+    if (level === 1) return base1;
+    if (level === 2) return base2;
     return base3;
   }
 

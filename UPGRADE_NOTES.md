@@ -25,3 +25,9 @@ Implemented a production-safe architectural upgrade inspired by LiveKit Agents p
 - Gemini realtime provider path
 - SSOT-driven prompts/behavior
 - Finalization/webhook pipeline
+
+
+## 2026-04-17 follow-up fixes
+- Removed non-SSOT hardcoded silence prompts such as "קחו רגע..."; silence prompts now come only from SSOT/ENV.
+- Added deterministic SSOT-based follow-up prompts for key intents (existing/new/business/private/product interest) so the call flow advances even when the provider does not generate the next question.
+- Callback question is now triggered immediately for known callers after a meaningful need/product-interest turn, matching the returning-customer flow more closely.
