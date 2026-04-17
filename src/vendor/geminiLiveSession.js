@@ -74,6 +74,50 @@ function longestSuffixPrefixOverlap(a, b, maxWindow) {
   return 0;
 }
 
+
+function isNoiseOnlyText(text) {
+  const value = safeStr(text).replace(/\s+/g, ' ').trim();
+  if (!value) return true;
+  if (/^<\s*noise\s*>$/iu.test(value)) return true;
+  if (/^noise$/iu.test(value)) return true;
+  if (/^[.\-,!?]+$/.test(value)) return true;
+  return false;
+}
+
+function normalizeCompactHebrew(text) {
+  return normalizeUtterance(safeStr(text)).normalized.replace(/\s+/g, '');
+}
+
+function shouldIgnoreAssistantTranscript(session, finalText) {
+  const value = safeStr(finalText).replace(/\s+/g, ' ').trim();
+  if (!value) return true;
+  if (looksLikeReasoningText(value)) return true;
+  const compact = value.replace(/\s+/g, '');
+  if (compact.length <= 2) return true;
+  if (/^[֐-׿]{1,2}$/u.test(compact)) return true;
+  if (Date.now() < Number(session?._ignoreBotNameEchoUntilTs || 0)) return true;
+
+  const callerName = normalizeLikelyName(
+    safeStr(session?.meta?.caller_profile?.display_name)
+      || safeStr(session?._passiveCtx?.name)
+      || safeStr(session?._orchestrator?.memory?.snapshot?.()?.callerName)
+  );
+  const normalizedValue = normalizeLikelyName(value);
+  if (callerName && normalizedValue && callerName == normalizedValue) return true;
+
+  const convo = Array.isArray(session?._call?.conversationLog) ? session._call.conversationLog : [];
+  let lastUser = '';
+  for (let i = convo.length - 1; i >= 0 && i >= convo.length - 6; i -= 1) {
+    const it = convo[i];
+    if (it?.role === 'user' && it?.text) {
+      lastUser = String(it.text);
+      break;
+    }
+  }
+  if (lastUser && normalizeCompactHebrew(lastUser) === normalizeCompactHebrew(value)) return true;
+  return false;
+}
+
 function mergeTranscriptChunks(prevText, nextChunk) {
   const prev = safeStr(prevText).trim();
   const next = safeStr(nextChunk).trim();
@@ -1003,7 +1047,22 @@ class GeminiLiveSession {
     const { who, role, rawText, normalized, finalText } = payload || {};
     if (!finalText) return;
 
-    if (who === "bot" && looksLikeReasoningText((normalized && (normalized.raw || normalized.normalized)) || finalText)) {
+    const recoveredText = safeStr(payload?.recovered_text || normalized?.recovered || normalized?.normalized || rawText || finalText);
+    const effectiveUserText = safeStr(recoveredText || finalText);
+
+    if (who === "bot" && shouldIgnoreAssistantTranscript(this, finalText)) {
+      logger.info("IGNORED_ASSISTANT_TRANSCRIPT", {
+        ...this.meta,
+        text: finalText,
+      });
+      return;
+    }
+
+    if (role === "user" && isNoiseOnlyText(effectiveUserText)) {
+      logger.info("IGNORED_NOISE_USER_TRANSCRIPT", {
+        ...this.meta,
+        text: effectiveUserText,
+      });
       return;
     }
 
@@ -1092,7 +1151,6 @@ class GeminiLiveSession {
 
     this.callSession?.markTimeline?.("first_user_stable_utterance_at");
     this._applyLanguageDecision(normalized);
-    // ── FIX (Task 3.1): pass full payload instead of normalized only ──
     handleUserTranscript(this, payload, {
       onNameDetected: (name, reason, sourceUtterance) =>
         this._commitRuntimeName(name, reason, sourceUtterance),

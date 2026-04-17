@@ -104,7 +104,7 @@ function deriveDecision(snapshot, settings = {}) {
   const hasPhone = Boolean(callbackChoice.value);
   const meetsTwilioRule = twilioStatus === "completed";
   const meetsThresholds = durationSeconds >= minDuration && meaningfulTurns >= minTurns;
-  const subjectOkay = !subject || wordCount(subject) >= minSubjectWords || hasMeaningfulText(notes);
+  const subjectOkay = wordCount(subject) >= minSubjectWords || hasMeaningfulText(notes);
 
   const canComplete = meetsTwilioRule && hasName && hasPhone && meetsThresholds && subjectOkay;
   if (canComplete) {
@@ -112,7 +112,7 @@ function deriveDecision(snapshot, settings = {}) {
       ...base,
       event_type: "COMPLETE",
       business_status: "COMPLETE",
-      reason: subject ? "complete_full_lead" : "complete_without_subject",
+      reason: "complete_full_lead",
       next_action: "return_call",
       priority: subject ? "normal" : "low",
     };

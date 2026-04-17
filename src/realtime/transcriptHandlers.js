@@ -291,13 +291,13 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
     if (!hasName && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
-    if (!hasCallback) {
+    if (hasSubject && !hasCallback) {
       return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
     }
     return null;
   }
 
-  if (isReturningFlow && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other") {
+  if (isReturningFlow && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other" && intentId !== "yes") {
     if (!hasName && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
@@ -464,7 +464,7 @@ function handleUserTranscript(session, nlp) {
     const callbackQuestionActive = !!(
       session._awaitingCallbackConfirmation ||
       memSnapshot.awaitingCallbackConfirmation ||
-      memSnapshot.lastQuestionType === "callback"
+      (memSnapshot.lastQuestionType === "callback" && memSnapshot.askedFields?.callback > 0)
     );
     if (callbackQuestionActive) {
       if (refersToSameCallerNumber(callbackText, safeStr(session.meta?.caller))) {
@@ -492,11 +492,12 @@ function handleUserTranscript(session, nlp) {
       }
     }
 
-    const intent = detectIntent({
+    const shouldRunIntent = !isIgnorableNoiseText(normalizedUserText) && !isInternalLabelText(normalizedUserText);
+    const intent = shouldRunIntent ? detectIntent({
       text: normalizedUserText,
       intents: session.ssot?.intents || [],
       intentSuggestions: session.ssot?.intent_suggestions || [],
-    });
+    }) : { intent_id: "other", intent_type: "other", score: 0, priority: 0, matched_triggers: [] };
     session._lastDetectedIntent = intent?.intent_id || "other";
 
     logger.info("INTENT_DETECTED", {
@@ -515,7 +516,7 @@ function handleUserTranscript(session, nlp) {
       intent,
     });
 
-    const shouldCaptureSubject = looksLikeNeedStatement(normalizedUserText) || intent?.intent_id === "product_interest" || intent?.intent_id === "price_question" || intent?.intent_id === "complaint";
+    const shouldCaptureSubject = !callbackQuestionActive && (looksLikeNeedStatement(normalizedUserText) || intent?.intent_id === "product_interest" || intent?.intent_id === "price_question" || intent?.intent_id === "complaint");
     if (shouldCaptureSubject) {
       session._orchestrator?.noteSubject?.(normalizedUserText);
     }
@@ -536,7 +537,7 @@ function handleUserTranscript(session, nlp) {
       !!session._reportState.reportType || !!session._reportState.period || !!session._reportState.forWhom);
 
     if (reportIntent) {
-      if (wantsCallback && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
+      if (wantsCallback && (memSnapshot.collectedFields?.subject || intent?.intent_id === "callback_request") && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
         const askPhrase = safeStr(session.ssot?.settings?.CALLBACK_ASK_PHRASE) || "כדי שנוכל לחזור אליכם, לחזור למספר שממנו התקשרתם או למספר אחר?";
         session._awaitingCallbackConfirmation = true;
         safeImmediateText(session, askPhrase, "CALLBACK_ASK_SENT");
@@ -550,7 +551,7 @@ function handleUserTranscript(session, nlp) {
       }
     }
 
-    if (wantsCallback && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
+    if (wantsCallback && (memSnapshot.collectedFields?.subject || intent?.intent_id === "callback_request") && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
       const askPhrase = safeStr(session.ssot?.settings?.CALLBACK_ASK_PHRASE) || "כדי שנוכל לחזור אליכם, לחזור למספר שממנו התקשרתם או למספר אחר?";
       session._awaitingCallbackConfirmation = true;
       safeImmediateText(session, askPhrase, "CALLBACK_ASK_SENT");
