@@ -257,10 +257,13 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   const mem = session._orchestrator?.memory?.snapshot?.() || {};
   const ssotSettings = session.ssot?.settings || {};
   const intentId = safeStr(intent?.intent_id || "other");
+  const stage = safeStr(mem.stage || "");
   const callerKnown = !!safeStr(session.meta?.caller_profile?.display_name || mem.callerName);
   const hasName = !!(callerKnown || mem.collectedFields?.name);
   const hasSubject = !!mem.collectedFields?.subject;
+  const hasCallback = !!mem.collectedFields?.callback;
   const looksMeaningful = safeStr(normalizedUserText).replace(/\s+/g, "").length >= 6;
+  const isReturningFlow = callerKnown || intentId === "existing_customer" || stage === "discover_need" || stage === "clarify_need";
 
   const askSegment = getApprovedScriptText(session, "ASK_NEW_SEGMENT", "אמרו לי בבקשה האם אתם לקוחות עסקיים או פרטיים");
   const askName = getApprovedScriptText(session, "ASK_NAME", "הבנתי, תודה. אמרו לי מה השם בבקשה");
@@ -276,7 +279,7 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
     return { text: askName, label: "FLOW_ASK_NAME_SENT" };
   }
 
-  if ((intentId === "business_customer" || intentId === "private_customer") && hasName) {
+  if ((intentId === "business_customer" || intentId === "private_customer") && hasName && !hasSubject) {
     return { text: askProduct, label: "FLOW_ASK_PRODUCT_SENT" };
   }
 
@@ -285,15 +288,36 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   }
 
   if (intentId === "product_interest") {
-    if (!hasName && !callerKnown) return { text: askName, label: "FLOW_ASK_NAME_SENT" };
-    return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+    if (!hasName && !callerKnown) {
+      return { text: askName, label: "FLOW_ASK_NAME_SENT" };
+    }
+    if (!hasCallback) {
+      return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+    }
+    return null;
   }
 
-  if (callerKnown && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction") {
-    return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+  if (isReturningFlow && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other") {
+    if (!hasName && !callerKnown) {
+      return { text: askName, label: "FLOW_ASK_NAME_SENT" };
+    }
+    if (!hasCallback) {
+      return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
+    }
   }
 
   return null;
+}
+
+
+function looksLikeNeedStatement(text) {
+  const value = safeStr(text).replace(/\s+/g, " ").trim();
+  if (!value) return false;
+  const compact = value.replace(/\s+/g, "");
+  if (compact.length < 5) return false;
+  if (isAffirmativeUtterance(value) || isNegativeUtterance(value)) return false;
+  if (/^(כן|לא|אוקיי|בסדר|טוב|תודה)$/u.test(value)) return false;
+  return true;
 }
 
 function handleUserTranscript(session, nlp) {
@@ -451,6 +475,12 @@ function handleUserTranscript(session, nlp) {
       intent,
     });
 
+    const shouldCaptureSubject = looksLikeNeedStatement(normalizedUserText) || intent?.intent_id === "product_interest" || intent?.intent_id === "price_question" || intent?.intent_id === "complaint";
+    if (shouldCaptureSubject) {
+      session._orchestrator?.noteSubject?.(normalizedUserText);
+    }
+    session._orchestrator?.noteIntent?.(intent?.intent_id || "other");
+
     const structuredFollowup = maybeGetStructuredFollowup(session, normalizedUserText, intent);
     if (structuredFollowup?.text) {
       if (structuredFollowup.callback) {
@@ -528,6 +558,12 @@ function handleBotTranscript(session, nlp) {
         previousAssistant = safeStr(ctxArr[i]?.text);
         break;
       }
+    }
+
+    const normalizedBotCompact = normalizeUtterance(botText).normalized.replace(/\s+/g, "");
+    const normalizedRecentUserCompact = normalizeUtterance(recentUser).normalized.replace(/\s+/g, "");
+    if (normalizedBotCompact && normalizedRecentUserCompact && normalizedBotCompact === normalizedRecentUserCompact) {
+      return true;
     }
 
     const botAsName = normalizeLikelyName(botText);

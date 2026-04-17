@@ -145,6 +145,11 @@ class ConversationOrchestrator {
     this._syncSnapshot();
   }
 
+  noteSubject(subject) {
+    this.leadManager.noteSubject(subject);
+    this._syncSnapshot();
+  }
+
   noteCallback(number) {
     this.leadManager.noteCallback(number);
     this._syncSnapshot();
