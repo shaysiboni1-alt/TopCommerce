@@ -320,6 +320,31 @@ function looksLikeNeedStatement(text) {
   return true;
 }
 
+function isIgnorableNoiseText(text) {
+  const value = safeStr(text).replace(/\s+/g, " ").trim();
+  if (!value) return true;
+  if (/^<\s*noise\s*>$/iu.test(value)) return true;
+  if (/^noise$/iu.test(value)) return true;
+  if (/^[.\-,!?]+$/.test(value)) return true;
+  return false;
+}
+
+function isIgnorableShortBotEcho(session, text) {
+  const value = safeStr(text).replace(/\s+/g, " ").trim();
+  if (!value) return true;
+  const callerName = normalizeLikelyName(
+    safeStr(session?.meta?.caller_profile?.display_name)
+      || safeStr(session?._passiveCtx?.name)
+      || safeStr(session?._orchestrator?.memory?.snapshot?.()?.callerName)
+  );
+  const normalizedValue = normalizeLikelyName(value);
+  if (callerName && normalizedValue && normalizedValue === callerName) return true;
+  const compact = value.replace(/\s+/g, "");
+  if (compact.length <= 2) return true;
+  if (/^[֐-׿]{1,2}$/u.test(compact)) return true;
+  return false;
+}
+
 function handleUserTranscript(session, nlp) {
   try {
     if (!session || typeof session !== "object") return false;
@@ -341,6 +366,15 @@ function handleUserTranscript(session, nlp) {
     }
 
     const normalizedUserText = stripNoiseMarkers(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw);
+    if (isIgnorableNoiseText(normalizedUserText)) {
+      logger.info("IGNORED_NOISE_USER_TRANSCRIPT", {
+        ...session.meta,
+        text: normalizedUserText,
+        raw_text: normalizedNlp.raw_text,
+        normalized_text: normalizedNlp.normalized_text,
+      });
+      return true;
+    }
 
     try {
       const callerId = safeStr(session.meta?.caller) || "";
@@ -426,7 +460,13 @@ function handleUserTranscript(session, nlp) {
     if (hasReportsIntent) applyReportEntities(session, normalizedUserText);
 
     const callbackText = normalizedUserText;
-    if (session._awaitingCallbackConfirmation) {
+    const memSnapshot = session._orchestrator?.memory?.snapshot?.() || {};
+    const callbackQuestionActive = !!(
+      session._awaitingCallbackConfirmation ||
+      memSnapshot.awaitingCallbackConfirmation ||
+      memSnapshot.lastQuestionType === "callback"
+    );
+    if (callbackQuestionActive) {
       if (refersToSameCallerNumber(callbackText, safeStr(session.meta?.caller))) {
         session._callbackConfirmed = true;
         session._awaitingCallbackConfirmation = false;
@@ -534,6 +574,7 @@ function handleBotTranscript(session, nlp) {
     const normalizedNlp = normalizeNlpInput(nlp);
     const botText = safeStr(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw);
     if (!botText) return false;
+    if (isIgnorableShortBotEcho(session, botText)) return true;
 
     if (botText.includes("[") || botText.includes("]")) {
       const safeName = normalizeLikelyName(

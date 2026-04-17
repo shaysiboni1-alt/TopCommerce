@@ -916,9 +916,17 @@ class GeminiLiveSession {
     if (!cleaned) return true;
     if (cleaned.includes("[") || cleaned.includes("]")) return true;
     if (isInternalLabelText(cleaned)) return true;
+    const compact = cleaned.replace(/[.,!?\s]+/g, "");
+    if (compact.length <= 2) return true;
+    const callerName = normalizeLikelyName(
+      safeStr(this.meta?.caller_profile?.display_name)
+      || safeStr(this._passiveCtx?.name)
+      || safeStr(this._orchestrator?.memory?.snapshot?.()?.callerName)
+    );
+    const possibleName = normalizeLikelyName(cleaned);
+    if (callerName && possibleName && possibleName === callerName) return true;
     if (this._ignoreBotNameEchoUntilTs > Date.now()) {
-      const possibleName = normalizeLikelyName(cleaned);
-      if (possibleName && cleaned.replace(/[.,!?\s]+/g, "") === possibleName.replace(/\s+/g, "")) {
+      if (possibleName && compact === possibleName.replace(/\s+/g, "")) {
         return true;
       }
     }
