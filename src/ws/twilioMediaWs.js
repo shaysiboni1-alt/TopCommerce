@@ -53,8 +53,11 @@ function installTwilioMediaWs(server) {
     const interruptionManager = new InterruptionManager({
       rmsThreshold: env.MB_BARGE_IN_RMS_THRESHOLD,
       minFrames: env.MB_BARGE_IN_MIN_FRAMES,
-      cooldownMs: 600,
-      onInterrupt: ({ rms, threshold, minFrames }) => {
+      cooldownMs: Number(env.MB_BARGEIN_COOLDOWN_MS || 600),
+      minSpeechMs: Number(env.MB_BARGEIN_MIN_MS || 170),
+      playbackStartGraceMs: Number(env.MB_BARGEIN_AUDIO_DROP_MS || 35) + 220,
+      maxInterFrameGapMs: 120,
+      onInterrupt: ({ rms, threshold, minFrames, minSpeechMs, playbackStartGraceMs }) => {
         if (gemini?.handleInterruption) gemini.handleInterruption("local_speech_barge_in");
         sendClear();
         logger.info("BARGE_IN_TRIGGERED", { streamSid, callSid, rms });
@@ -65,7 +68,13 @@ function installTwilioMediaWs(server) {
           type: DEBUG_EVENT_TYPES.BARGE_IN_TRIGGERED,
           source: "twilioMediaWs",
           level: "info",
-          data: { rms, threshold, min_frames: minFrames },
+          data: {
+            rms,
+            threshold,
+            min_frames: minFrames,
+            min_speech_ms: minSpeechMs,
+            playback_start_grace_ms: playbackStartGraceMs,
+          },
         });
       },
     });

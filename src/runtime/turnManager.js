@@ -22,6 +22,7 @@ class TurnManager {
       responseEndedAt: 0,
       responseChunksSent: 0,
       interruptionPending: false,
+      lowConfidenceUserTurns: 0,
     };
   }
 
@@ -131,6 +132,12 @@ class TurnManager {
     return this.snapshot();
   }
 
+  noteLowConfidenceUserTurn() {
+    this.state.lowConfidenceUserTurns += 1;
+    this.state.holdUntilTs = Math.max(this.state.holdUntilTs, Date.now() + 120);
+    return this.snapshot();
+  }
+
   shouldHoldBeforeModelSend() {
     return Date.now() < this.state.holdUntilTs;
   }
@@ -140,18 +147,62 @@ class TurnManager {
     const timeSinceAudio = now - this.state.lastUserAudioAt;
     let hold = Number(baseMs) || 420;
     if (this.state.assistantSpeaking) hold += 120;
-    if (now - this.state.lastInterruptAt < 1800) hold += 160;
+    if (now - this.state.lastInterruptAt < 1800) hold += 220;
     if (timeSinceAudio < 220) hold += 120;
-    if (this.state.interruptionPending) hold += 80;
-    return Math.max(260, Math.min(900, hold));
+    if (this.state.interruptionPending) hold += 120;
+    return Math.max(280, Math.min(980, hold));
   }
 
   getSuggestedStableGapMs(baseMs) {
     const now = Date.now();
     let gap = Number(baseMs) || 360;
-    if (now - this.state.lastInterruptAt < 1800) gap += 120;
-    if (this.state.interruptionPending) gap += 60;
-    return Math.max(180, Math.min(720, gap));
+    if (now - this.state.lastInterruptAt < 1800) gap += 160;
+    if (this.state.interruptionPending) gap += 80;
+    return Math.max(220, Math.min(760, gap));
+  }
+
+  _tokenize(text) {
+    return String(text || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  _compact(text) {
+    return String(text || "")
+      .replace(/[\s.,!?;:'"()[\]{}\-_/\\]+/g, "")
+      .trim();
+  }
+
+  isLowConfidenceTranscript(text) {
+    const raw = String(text || "").trim();
+    if (!raw) return true;
+
+    const compact = this._compact(raw);
+    if (compact.length < 3) return true;
+
+    const tokens = this._tokenize(raw);
+    if (!tokens.length) return true;
+
+    const shortTokens = tokens.filter((token) => token.length <= 1).length;
+    const mediumTokens = tokens.filter((token) => token.length >= 2).length;
+    const longTokens = tokens.filter((token) => token.length >= 3).length;
+    const hasDigits = /\d/.test(raw);
+    const hasHebrew = /[\u0590-\u05FF]/.test(raw);
+    const hasLatin = /[A-Za-z]/.test(raw);
+
+    if (!hasDigits && !hasHebrew && !hasLatin) return true;
+    if (tokens.length >= 4 && shortTokens / tokens.length >= 0.7 && longTokens === 0) return true;
+    if (tokens.length >= 5 && mediumTokens <= 1 && !hasDigits) return true;
+
+    const splitPatternCount = (raw.match(/(?:^|\s)[\u0590-\u05FF](?:\s+[\u0590-\u05FF]){2,}(?=\s|$)/gu) || []).length;
+    if (splitPatternCount >= 1 && longTokens === 0 && compact.length < 10) return true;
+
+    return false;
+  }
+
+  shouldCommitUserText(text) {
+    return !this.isLowConfidenceTranscript(text);
   }
 
   snapshot() {

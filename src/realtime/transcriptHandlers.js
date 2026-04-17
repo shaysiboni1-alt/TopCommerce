@@ -259,6 +259,20 @@ function handleUserTranscript(session, nlp) {
 
     const normalizedUserText = stripNoiseMarkers(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw);
 
+    if (session._orchestrator?.shouldCommitUserText && !session._orchestrator.shouldCommitUserText(normalizedUserText)) {
+      logger.info("USER_TURN_DEFERRED_LOW_CONFIDENCE", {
+        ...session.meta,
+        text: normalizedNlp.raw,
+        normalized_text: normalizedNlp.normalized_text,
+        recovered_text: normalizedNlp.recovered_text,
+        final_text: normalizedNlp.final_text,
+      });
+      try {
+        session._orchestrator?.noteLowConfidenceUserText?.(normalizedUserText);
+      } catch {}
+      return true;
+    }
+
     try {
       const callerId = safeStr(session.meta?.caller) || "";
       if (callerId) {
