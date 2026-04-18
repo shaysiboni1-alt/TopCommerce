@@ -91,6 +91,17 @@ function normalizeCompactHebrew(text) {
 function shouldIgnoreAssistantTranscript(session, finalText) {
   const value = safeStr(finalText).replace(/\s+/g, ' ').trim();
   if (!value) return true;
+  const convo = Array.isArray(session?._call?.conversationLog) ? session._call.conversationLog : [];
+  const recentUserText = (() => {
+    for (let i = convo.length - 1; i >= 0 && i >= convo.length - 8; i -= 1) {
+      const it = convo[i];
+      if (it?.role === 'user' && it?.text) return String(it.text);
+    }
+    return '';
+  })();
+  const compactRecentUser = normalizeCompactHebrew(recentUserText);
+  const compactValue = normalizeCompactHebrew(value);
+  if (compactRecentUser && compactValue && compactRecentUser === compactValue) return true;
   if (looksLikeReasoningText(value)) return true;
   const compact = value.replace(/\s+/g, '');
   if (compact.length <= 2) return true;
@@ -105,16 +116,6 @@ function shouldIgnoreAssistantTranscript(session, finalText) {
   const normalizedValue = normalizeLikelyName(value);
   if (callerName && normalizedValue && callerName == normalizedValue) return true;
 
-  const convo = Array.isArray(session?._call?.conversationLog) ? session._call.conversationLog : [];
-  let lastUser = '';
-  for (let i = convo.length - 1; i >= 0 && i >= convo.length - 6; i -= 1) {
-    const it = convo[i];
-    if (it?.role === 'user' && it?.text) {
-      lastUser = String(it.text);
-      break;
-    }
-  }
-  if (lastUser && normalizeCompactHebrew(lastUser) === normalizeCompactHebrew(value)) return true;
   return false;
 }
 
@@ -671,7 +672,8 @@ class GeminiLiveSession {
 
     this.ws.on("close", async (code, reasonBuf) => {
       const reason = reasonBuf ? reasonBuf.toString("utf8") : "";
-      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 2;
+      const openingWindowActive = this._openingPhase || (Date.now() - Number(this._openingSentAt || 0) < 2500);
+      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 2 && !openingWindowActive;
       this.closed = true;
       this.ready = false;
       this.ws = null;

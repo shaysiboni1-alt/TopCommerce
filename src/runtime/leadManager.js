@@ -169,7 +169,10 @@ class LeadManager {
       }
     }
 
-    const sanitized = sanitizeCandidate(text, { directReply: askedForName, explicit: false }) || "";
+    const allowNameRecovery = askedForName || this.nameRecovery.awaitingConfirmation;
+    const sanitized = allowNameRecovery
+      ? (sanitizeCandidate(text, { directReply: askedForName, explicit: false }) || "")
+      : "";
     if (sanitized && hasHebrewLetters(sanitized)) {
       this.nameRecovery.attempts += 1;
       this.nameRecovery.lastRawReply = text;
@@ -183,7 +186,7 @@ class LeadManager {
       };
     }
 
-    if (askedForName || this.nameRecovery.awaitingConfirmation) {
+    if (allowNameRecovery) {
       const directReply = looksLikeShortDirectNameReply(text);
       if (directReply) {
         const sameAsPrevious = this.nameRecovery.lastRawReply && this.nameRecovery.lastRawReply === text;
