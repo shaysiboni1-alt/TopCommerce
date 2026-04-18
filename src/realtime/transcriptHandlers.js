@@ -368,6 +368,8 @@ function containsSalvageableBusinessKeyword(text) {
 }
 
 function shouldOverrideLowConfidence(session, normalizedUserText) {
+  const compact = safeStr(normalizedUserText).replace(/\s+/g, "");
+  if (compact.length < 5) return false;
   if (!getLowConfidenceKeywordOverride()) return false;
   if (containsSalvageableBusinessKeyword(normalizedUserText)) return true;
   const quickIntent = detectIntent({
@@ -649,14 +651,12 @@ function handleUserTranscript(session, nlp) {
         }
       }
 
-      if (lowConfidenceState.count >= 2) {
-        const retryText = getApprovedScriptText(
-          session,
-          "ERROR_REPEAT",
-          safeStr(session.ssot?.settings?.NO_DATA_MESSAGE) || "סליחה, לא הבנתי, אפשר לחזור שוב"
-        );
-        safeImmediateText(session, retryText, "LOW_CONFIDENCE_REPEAT_SENT");
-      }
+      const retryText = getApprovedScriptText(
+        session,
+        "ERROR_REPEAT",
+        safeStr(session.ssot?.settings?.NO_DATA_MESSAGE) || "סליחה, לא הבנתי, אפשר לחזור שוב"
+      );
+      safeImmediateText(session, retryText, lowConfidenceState.count >= 2 ? "LOW_CONFIDENCE_REPEAT_SENT" : "LOW_CONFIDENCE_CLARIFY_SENT");
       return true;
     }
     const callbackQuestionActive = !!(

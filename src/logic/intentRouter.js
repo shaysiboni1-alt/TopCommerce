@@ -56,14 +56,16 @@ function scoreTriggerAgainstVariants(trigger, variants) {
 function scoreIntentSuggestions(textRaw, suggestions) {
   const text = normalizeUtterance(textRaw || "").normalized;
   if (!text) return null;
+  const compactText = text.replace(/\s+/g, "");
+  if (compactText.length < 4) return null;
   let best = null;
   for (const row of Array.isArray(suggestions) ? suggestions : []) {
     const phrase = normalizeUtterance(row?.phrase_he || "").normalized;
     const suggested_intent_id = String(row?.suggested_intent_id || "").trim();
     if (!phrase || !suggested_intent_id) continue;
     let score = 0;
-    if (text.includes(phrase) || phrase.includes(text)) score = 9;
-    else if (text.replace(/\s+/g,"").includes(phrase.replace(/\s+/g,""))) score = 7;
+    if (text.includes(phrase)) score = 9;
+    else if (compactText.includes(phrase.replace(/\s+/g,""))) score = 7;
     if (!score) continue;
     const confidence = Number(row?.confidence || 0) || 0;
     const candidate = { intent_id: suggested_intent_id, intent_type: String(row?.suggested_intent_type || "other").trim() || "other", score: score + confidence, priority: 0, matched_triggers: [row?.phrase_he || phrase] };
@@ -97,6 +99,16 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
 
   const prepared = buildVariants(textRaw);
   const suggestions = Array.isArray(opts.intentSuggestions) ? opts.intentSuggestions : [];
+  const compactInput = String(prepared.normalized || "").replace(/\s+/g, "");
+  if (compactInput.length < 4) {
+    return {
+      intent_id: "other",
+      intent_type: "other",
+      score: 0,
+      priority: 0,
+      matched_triggers: [],
+    };
+  }
   const lang =
     opts.forceLang ||
     prepared.lang ||

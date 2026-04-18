@@ -120,7 +120,7 @@ function deriveDecision(snapshot, settings = {}) {
 
   let abandonedReason = "ended_before_complete";
   if (!meetsTwilioRule) abandonedReason = twilioStatus || "ended_before_complete";
-  else if (!hasName) abandonedReason = "missing_name";
+  else if (!hasName) abandonedReason = hadMeaningfulInteraction ? "ended_before_complete" : "missing_name";
   else if (!hasPhone) abandonedReason = withholdCallerId ? "missing_explicit_callback_number" : "missing_callback_number";
   else if (!meetsThresholds) abandonedReason = meaningfulTurns < minTurns ? "insufficient_user_turns" : "insufficient_duration";
   else if (!subjectOkay) abandonedReason = "subject_too_short";

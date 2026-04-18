@@ -640,7 +640,6 @@ class GeminiLiveSession {
             if (cleaned && !suppressed) {
               this._lastBotText = cleaned;
               this._lastBotTextAt = Date.now();
-              this._onTranscriptChunk("bot", cleaned);
             } else if (cleaned && suppressed) {
               recordCallEvent({
                 callSid: this._getCallData().callSid,
@@ -671,7 +670,10 @@ class GeminiLiveSession {
         const outTr = msg?.serverContent?.outputTranscription?.text;
         const cleanedOut = scrubReasoningText(String(outTr || ""));
         const duplicateOut = cleanedOut && cleanedOut === this._lastBotText && (Date.now() - this._lastBotTextAt) < 2500;
-        if (cleanedOut && !isInternalLabelText(cleanedOut) && !this._shouldSuppressBotText(cleanedOut) && !duplicateOut) this._onTranscriptChunk("bot", cleanedOut);
+        if (cleanedOut && !isInternalLabelText(cleanedOut) && !this._shouldSuppressBotText(cleanedOut) && !duplicateOut) {
+          this._lastBotText = cleanedOut;
+          this._lastBotTextAt = Date.now();
+        }
       } catch {}
     });
 

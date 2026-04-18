@@ -57,6 +57,8 @@ function installTwilioMediaWs(server) {
       minFrames: env.MB_BARGE_IN_MIN_FRAMES,
       cooldownMs: 600,
       onInterrupt: ({ rms, threshold, minFrames }) => {
+        if (!gemini?.shouldAllowBargeIn?.({ rms, threshold, minFrames })) return;
+        if (!gemini?._assistantPlaybackActive) return;
         if (gemini?.handleInterruption) gemini.handleInterruption("local_speech_barge_in");
         sendClear();
         logger.info("BARGE_IN_TRIGGERED", { streamSid, callSid, rms });
