@@ -192,7 +192,11 @@ class GeminiLiveSession {
       getStableGapMs: (who) => (who === "user" ? this._getUserMinStableGapMs() : this._getBotMinStableGapMs()),
       shouldDelayFlush: (who, bufferedText, ctx) => {
         if (who !== "user") return false;
-        const shouldHold = this._isShortUserFragment(bufferedText) || this._looksIncompleteUserThought(bufferedText);
+        const looksIncomplete =
+          typeof this._looksIncompleteUserThought === "function"
+            ? this._looksIncompleteUserThought(bufferedText)
+            : false;
+        const shouldHold = this._isShortUserFragment(bufferedText) || looksIncomplete;
         if (!shouldHold) return false;
         const maxAgeMs = Math.max(ctx.stableGapMs * 2, getUserTranscriptMaxBufferMs());
         return ctx.bufferAgeMs < maxAgeMs;
@@ -386,6 +390,40 @@ class GeminiLiveSession {
     const words = this._countWords(value);
     return chars < getUserTranscriptMinChars() ||
       words < getUserTranscriptMinWords();
+  }
+
+  _looksIncompleteUserThought(text) {
+    const value = safeStr(text).trim();
+    if (!value) return false;
+
+    const compact = value.replace(/\s+/g, "");
+    if (!compact) return false;
+
+    if (/[,.:;\-־]$/.test(value)) return true;
+    if (/(?:ו|ש|ה|ל|כ|מ|ב)$/u.test(value)) return true;
+
+    const incompletePrefixes = [
+      "היי",
+      "שלום",
+      "בעצם",
+      "רציתי",
+      "אני רוצה",
+      "אני צריך",
+      "אני מחפש",
+      "אפשר",
+      "יש לכם",
+      "רק רציתי",
+      "רציתי לדעת",
+    ];
+    if (incompletePrefixes.some((prefix) => value === prefix || value.startsWith(prefix + " "))) {
+      return true;
+    }
+
+    const words = value.split(/\s+/).filter(Boolean);
+    const last = safeStr(words[words.length - 1]);
+    if (last && last.length === 1) return true;
+
+    return false;
   }
 
   start() {
