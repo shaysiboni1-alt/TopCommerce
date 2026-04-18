@@ -250,6 +250,15 @@ function getApprovedScriptText(session, scriptKey, fallback = "") {
   return safeStr(fallback);
 }
 
+
+function buildCallbackQuestion(session, subjectText) {
+  const ssotSettings = session?.ssot?.settings || {};
+  const fallback = safeStr(ssotSettings.CALLBACK_ASK_PHRASE) || "אוקיי, תרצו שנחזור למספר ממנו התקשרתם או למספר אחר?";
+  const subject = safeStr(subjectText).replace(/\s+/g, " ").trim();
+  if (!subject) return fallback;
+  return `הבנתי. רשמתי ${subject}. תרצו שנחזור למספר הזה או למספר אחר?`;
+}
+
 function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   if (!session || typeof session !== "object") return null;
   if (session._awaitingCallbackConfirmation || session._callbackConfirmed || session._hardClosingMode) return null;
@@ -270,7 +279,7 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   const askName = getApprovedScriptText(session, "ASK_NAME", "הבנתי, תודה. אמרו לי מה השם בבקשה");
   const askProduct = getApprovedScriptText(session, "ASK_PRODUCT_INTEREST", "נהדר, אשמח שתפרטו לי באיזה מוצר או שירות שלנו אתם מתעניינים");
   const askNeedReturning = getApprovedScriptText(session, "ASK_EXISTING_NEED", "איזה כיף לשמוע מכם שוב, אמרו לי בבקשה במה אפשר לעזור");
-  const askCallback = safeStr(ssotSettings.CALLBACK_ASK_PHRASE) || "אוקיי, תרצו שנחזור למספר ממנו התקשרתם או למספר אחר?";
+  const askCallback = buildCallbackQuestion(session, safeStr(mem.collectedFields?.subject || normalizedUserText));
 
   if (intentId === "new_customer") {
     return { text: askSegment, label: "FLOW_ASK_SEGMENT_SENT" };
@@ -292,7 +301,10 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
     if (!hasName && !(skipKnownCallerNameAsk && callerKnown) && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
-    if (hasSubject && !hasCallback) {
+    if (!hasSubject) {
+      return null;
+    }
+    if (!hasCallback) {
       return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
     }
     return null;
@@ -629,8 +641,9 @@ function handleUserTranscript(session, nlp) {
 
     if (reportIntent) {
       if (wantsCallback && (memSnapshot.collectedFields?.subject || intent?.intent_id === "callback_request") && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
-        const askPhrase = safeStr(session.ssot?.settings?.CALLBACK_ASK_PHRASE) || "כדי שנוכל לחזור אליכם, לחזור למספר שממנו התקשרתם או למספר אחר?";
+        const askPhrase = buildCallbackQuestion(session, safeStr(memSnapshot.collectedFields?.subject || normalizedUserText));
         session._awaitingCallbackConfirmation = true;
+        session._orchestrator?.noteCallbackAwaiting?.(true);
         safeImmediateText(session, askPhrase, "CALLBACK_ASK_SENT");
         return true;
       }
@@ -643,8 +656,9 @@ function handleUserTranscript(session, nlp) {
     }
 
     if (wantsCallback && (memSnapshot.collectedFields?.subject || intent?.intent_id === "callback_request") && !session._awaitingCallbackConfirmation && !session._callbackConfirmed && !session._hardClosingMode) {
-      const askPhrase = safeStr(session.ssot?.settings?.CALLBACK_ASK_PHRASE) || "כדי שנוכל לחזור אליכם, לחזור למספר שממנו התקשרתם או למספר אחר?";
+      const askPhrase = buildCallbackQuestion(session, safeStr(memSnapshot.collectedFields?.subject || normalizedUserText));
       session._awaitingCallbackConfirmation = true;
+      session._orchestrator?.noteCallbackAwaiting?.(true);
       safeImmediateText(session, askPhrase, "CALLBACK_ASK_SENT");
       return true;
     }

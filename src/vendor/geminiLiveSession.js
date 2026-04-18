@@ -154,6 +154,10 @@ class GeminiLiveSession {
     this.ready = false;
     this.closed = false;
     this._greetingSent = false;
+    this._providerReconnectAttempts = 0;
+    this._providerRecovering = false;
+    this._stopRequested = false;
+    this._lastImmediatePrompt = null;
     this._hangupScheduled = false;
     this._awaitingCallbackConfirmation = false;
     this._callbackConfirmed = false;
@@ -434,6 +438,7 @@ class GeminiLiveSession {
     this.ws.on("open", async () => {
       this.callSession?.markTimeline?.("provider_session_ready_at");
       logger.info("Gemini Live WS connected", this.meta);
+      if (!this._providerRecovering) this._providerReconnectAttempts = 0;
 
       recordCallEvent({
         callSid: this._getCallData().callSid,
@@ -536,6 +541,18 @@ class GeminiLiveSession {
       }
 
       try {
+        if (this._providerRecovering) {
+          this._providerRecovering = false;
+          this.meta.opening_played = "1";
+          const replay = this._lastImmediatePrompt && (Date.now() - Number(this._lastImmediatePrompt.at || 0) <= 15000)
+            ? this._lastImmediatePrompt
+            : null;
+          if (replay?.text) {
+            setTimeout(() => this._sendImmediateText(replay.text, replay.label || "PROVIDER_RECOVERY_REPLAY_SENT"), 180);
+            return;
+          }
+        }
+
         const openingPlayed = String(this.meta?.opening_played || "") === "1";
         if (openingPlayed) {
           logger.info("Opening already played by Twilio; skipping Gemini greeting", this.meta);
@@ -657,13 +674,15 @@ class GeminiLiveSession {
 
     this.ws.on("close", async (code, reasonBuf) => {
       const reason = reasonBuf ? reasonBuf.toString("utf8") : "";
+      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 1;
       this.closed = true;
       this.ready = false;
+      this.ws = null;
 
       this._transcriptStore.flush("user", { force: true });
       this._transcriptStore.flush("bot", { force: true });
 
-      logger.info("Gemini Live WS closed", { ...this.meta, code, reason });
+      logger.info("Gemini Live WS closed", { ...this.meta, code, reason, reconnectable });
 
       recordCallEvent({
         callSid: this._getCallData().callSid,
@@ -677,6 +696,23 @@ class GeminiLiveSession {
           reason,
         },
       });
+
+      if (reconnectable) {
+        this._providerReconnectAttempts += 1;
+        this._providerRecovering = true;
+        logger.warn("Gemini Live WS closed with recoverable internal error; reconnecting", {
+          ...this.meta,
+          code,
+          reason,
+          reconnect_attempt: this._providerReconnectAttempts,
+        });
+        setTimeout(() => {
+          this.closed = false;
+          this.ready = false;
+          this.start();
+        }, 350);
+        return;
+      }
 
       await this._finalizeOnce("gemini_ws_close");
     });
@@ -894,6 +930,7 @@ class GeminiLiveSession {
     if (!this.ws || this.closed || !this.ready) return;
     const safeText = safeStr(exactText);
     if (!safeText) return;
+    this._lastImmediatePrompt = { text: safeText, label: safeStr(label), at: Date.now() };
     const msg = {
       clientContent: {
         turns: [{
@@ -1259,6 +1296,7 @@ class GeminiLiveSession {
   }
 
   stop() {
+    this._stopRequested = true;
     this.closed = true;
     this.ready = false;
     this._transcriptStore.flush("user", { force: true });
