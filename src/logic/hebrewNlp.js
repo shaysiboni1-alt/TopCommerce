@@ -1,5 +1,7 @@
 "use strict";
 
+const { getHebrewRecoveryAggressive } = require("../config/runtimeSettings");
+
 const HEBREW_DIACRITICS_RE = /[\u0591-\u05C7]/g;
 const HEBREW_CHAR_RE = /[\u0590-\u05FF]/;
 
@@ -174,6 +176,13 @@ const PHRASE_FIXES = [
   ["ר ציתי", "רציתי"],
   ["ל דעת", "לדעת"],
   ["תי ל דעת", "תי לדעת"],
+  ["מת ע ניין", "מתעניין"],
+  ["מת עניין", "מתעניין"],
+  ["ב כיס אות", "בכיסאות"],
+  ["כיס אות", "כיסאות"],
+  ["כ ס א", "כיסא"],
+  ["שול חן", "שולחן"],
+  ["שול חנות", "שולחנות"],
 ];
 
 function joinSplitDigits(text) {
@@ -382,6 +391,25 @@ function joinCommonHebrewFragments(text) {
   return s;
 }
 
+function repairHebrewProductPhrases(text) {
+  let s = safeStr(text);
+  if (!s) return s;
+
+  const repairs = [
+    [/\bכיס\s+אות\b/gu, "כיסאות"],
+    [/\bכס\s+אות\b/gu, "כסאות"],
+    [/\bכיס\s+א\b/gu, "כיסא"],
+    [/\bשול\s+חן\b/gu, "שולחן"],
+    [/\bשול\s+חנות\b/gu, "שולחנות"],
+    [/\bמת\s*ע\s*ניין\b/gu, "מתעניין"],
+    [/\bמת\s+עניין\b/gu, "מתעניין"],
+    [/\bרציתי\s*ל\s*דעת\b/gu, "רציתי לדעת"],
+  ];
+
+  for (const [pattern, replacement] of repairs) s = s.replace(pattern, replacement);
+  return s;
+}
+
 function normalizeHebrewBusinessTerms(text) {
   let s = safeStr(text);
   s = s.replace(/רווח\s+ו\s*הפסד/gu, "רווח והפסד");
@@ -414,7 +442,9 @@ function normalizeUtterance(text) {
 
   let normalized = basicNormalize(raw);
   normalized = joinCommonHebrewFragments(normalized);
+  if (getHebrewRecoveryAggressive()) normalized = repairHebrewProductPhrases(normalized);
   normalized = normalizeHebrewBusinessTerms(normalized);
+  if (getHebrewRecoveryAggressive()) normalized = repairHebrewProductPhrases(normalized);
   normalized = collapseWhitespace(normalized);
 
   const langInfo = detectLanguageDetailed(normalized);

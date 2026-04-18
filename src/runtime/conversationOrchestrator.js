@@ -6,6 +6,7 @@ const { TurnManager } = require("./turnManager");
 const { SilenceManager } = require("./silenceManager");
 const { AudioPolicy } = require("./audioPolicy");
 const { recordCallEvent } = require("../debug/debugLogger");
+const { getPostOpeningSilenceGraceMs } = require("../config/runtimeSettings");
 const { DEBUG_EVENT_CATEGORIES } = require("../debug/debugEventTypes");
 
 class ConversationOrchestrator {
@@ -123,7 +124,9 @@ class ConversationOrchestrator {
 
   noteAssistantPlaybackStop() {
     this.turnManager.noteAssistantPlaybackStop();
-    this.silenceManager.arm(Date.now());
+    const mem = this.memory.snapshot();
+    const firstLevelExtraMs = mem.userTurns <= 0 ? getPostOpeningSilenceGraceMs() : 0;
+    this.silenceManager.arm(Date.now(), { firstLevelExtraMs });
     this._syncSnapshot();
   }
 

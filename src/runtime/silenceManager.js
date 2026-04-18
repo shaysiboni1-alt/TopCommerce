@@ -13,6 +13,7 @@ class SilenceManager {
     this.timer = null;
     this.currentLevel = 0;
     this.referenceAt = 0;
+    this.firstLevelExtraMs = 0;
   }
 
   _clearTimer() {
@@ -21,9 +22,9 @@ class SilenceManager {
   }
 
   _getThreshold(level) {
-    if (level === 1) return Math.max(1500, Number(this.env.SILENCE_T1_MS || 4500));
-    if (level === 2) return Math.max(2500, Number(this.env.SILENCE_T2_MS || 8000));
-    return Math.max(3500, Number(this.env.SILENCE_T3_MS || 12000));
+    if (level === 1) return Math.max(1500, Number(this.env.SILENCE_T1_MS || 9000));
+    if (level === 2) return Math.max(2500, Number(this.env.SILENCE_T2_MS || 15000));
+    return Math.max(3500, Number(this.env.SILENCE_T3_MS || 22000));
   }
 
   _buildPrompt(level) {
@@ -42,21 +43,24 @@ class SilenceManager {
     if (!this.referenceAt) return;
     const nextLevel = Math.min(3, this.currentLevel + 1);
     const delay = this._getThreshold(nextLevel);
-    const dueAt = this.referenceAt + delay;
+    const extra = nextLevel === 1 ? Math.max(0, Number(this.firstLevelExtraMs) || 0) : 0;
+    const dueAt = this.referenceAt + delay + extra;
     const ms = Math.max(120, dueAt - Date.now());
     this.timer = setTimeout(() => this._fire(nextLevel), ms);
   }
 
   _fire(level) {
     this.currentLevel = level;
+    if (level === 1) this.firstLevelExtraMs = 0;
     this.memory?.noteSilence?.();
     this.onPrompt({ level, text: this._buildPrompt(level), context: this.memory?.getSilenceContext?.() || "general" });
     if (level < 3) this._scheduleNext();
   }
 
-  arm(reference = Date.now()) {
+  arm(reference = Date.now(), options = {}) {
     this.referenceAt = Number(reference) || Date.now();
     this.currentLevel = 0;
+    this.firstLevelExtraMs = Math.max(0, Number(options?.firstLevelExtraMs) || 0);
     this._scheduleNext();
   }
 
@@ -64,11 +68,13 @@ class SilenceManager {
     this._clearTimer();
     this.referenceAt = Number(reference) || Date.now();
     this.currentLevel = 0;
+    this.firstLevelExtraMs = 0;
   }
 
   stop() {
     this.referenceAt = 0;
     this.currentLevel = 0;
+    this.firstLevelExtraMs = 0;
     this._clearTimer();
   }
 }

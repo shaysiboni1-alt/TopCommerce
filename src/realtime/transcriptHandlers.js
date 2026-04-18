@@ -3,7 +3,7 @@
 const { logger } = require("../utils/logger");
 const { detectIntent } = require("../logic/intentRouter");
 const { extractCallerName, lastBotAskedForName, collapseHebrewSpacing } = require("../logic/nameExtractor");
-const { applyTemplate, digitsSpoken } = require("../config/runtimeSettings");
+const { applyTemplate, digitsSpoken, getKnownCallerSkipNameAsk, getLowConfidenceKeywordOverride } = require("../config/runtimeSettings");
 const { hangupCall } = require("../utils/twilioRecordings");
 const { normalizeUtterance } = require("../logic/hebrewNlp");
 const {
@@ -259,7 +259,8 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   const intentId = safeStr(intent?.intent_id || "other");
   const stage = safeStr(mem.stage || "");
   const callerKnown = !!safeStr(session.meta?.caller_profile?.display_name || mem.callerName);
-  const hasName = !!(callerKnown || mem.collectedFields?.name);
+  const skipKnownCallerNameAsk = getKnownCallerSkipNameAsk();
+  const hasName = !!((skipKnownCallerNameAsk && callerKnown) || mem.collectedFields?.name || callerKnown);
   const hasSubject = !!mem.collectedFields?.subject;
   const hasCallback = !!mem.collectedFields?.callback;
   const looksMeaningful = safeStr(normalizedUserText).replace(/\s+/g, "").length >= 6;
@@ -288,7 +289,7 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   }
 
   if (intentId === "product_interest") {
-    if (!hasName && !callerKnown) {
+    if (!hasName && !(skipKnownCallerNameAsk && callerKnown) && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
     if (hasSubject && !hasCallback) {
@@ -298,7 +299,7 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   }
 
   if (isReturningFlow && looksMeaningful && hasSubject && !hasCallback && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other" && intentId !== "yes") {
-    if (!hasName && !callerKnown) {
+    if (!hasName && !(skipKnownCallerNameAsk && callerKnown) && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
     return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
@@ -341,6 +342,34 @@ function isIgnorableShortBotEcho(session, text) {
   if (compact.length <= 2) return true;
   if (/^[֐-׿]{1,2}$/u.test(compact)) return true;
   return false;
+}
+
+function containsSalvageableBusinessKeyword(text) {
+  const value = safeStr(text).replace(/\s+/g, " ").trim();
+  if (!value) return false;
+  return /(כיסא|כסא|כיסאות|כסאות|כיס אות|שולחן|שולחנות|שול חן|שול חנות|ארגונומי|זרוע|מסך|מקלדת|עכבר|כתובת|שעות|טלפון|מייל|אימייל|מחיר|הצעת מחיר|בעיה|תקלה)/u.test(value);
+}
+
+function shouldOverrideLowConfidence(session, normalizedUserText) {
+  if (!getLowConfidenceKeywordOverride()) return false;
+  if (containsSalvageableBusinessKeyword(normalizedUserText)) return true;
+  const quickIntent = detectIntent({
+    text: normalizedUserText,
+    intents: session?.ssot?.intents || [],
+    intentSuggestions: session?.ssot?.intent_suggestions || [],
+  });
+  const intentId = safeStr(quickIntent?.intent_id);
+  return [
+    "product_interest",
+    "ask_contact_info",
+    "price_question",
+    "callback_request",
+    "complaint",
+    "existing_customer",
+    "new_customer",
+    "business_customer",
+    "private_customer",
+  ].includes(intentId);
 }
 
 function countSingleHebrewLetterTokens(text) {
@@ -501,7 +530,7 @@ function handleUserTranscript(session, nlp) {
     const callbackText = normalizedUserText;
     const memSnapshot = session._orchestrator?.memory?.snapshot?.() || {};
 
-    if (looksLikeLowConfidenceHebrewTurn(normalizedNlp, normalizedUserText)) {
+    if (looksLikeLowConfidenceHebrewTurn(normalizedNlp, normalizedUserText) && !shouldOverrideLowConfidence(session, normalizedUserText)) {
       const lowConfidenceState = noteLowConfidenceTurn(session);
       logger.info("LOW_CONFIDENCE_USER_TURN_IGNORED", {
         ...session.meta,

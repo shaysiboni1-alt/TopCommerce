@@ -400,7 +400,7 @@ class GeminiLiveSession {
     if (!compact) return false;
 
     if (/[,.:;\-־]$/.test(value)) return true;
-    if (/(?:ו|ש|ה|ל|כ|מ|ב)$/u.test(value)) return true;
+    if (/(?:^|\s)(?:ו|ש|ה|ל|כ|מ|ב)$/u.test(value)) return true;
 
     const incompletePrefixes = [
       "היי",
@@ -575,7 +575,7 @@ class GeminiLiveSession {
 
         this._beginOpeningPhase();
 
-        const openingInstruction = `התחילי עכשיו את השיחה הטלפונית. אמרי בדיוק את המשפט הבא, בטון מקצועי וטבעי, בלי להוסיף הקדמה ובלי לשנות מילים, ואז עצרי והמתיני ללקוח: ${openingText}`;
+        const openingInstruction = `אמרי עכשיו בדיוק את המשפט הבא, בלי לשנות מילים, ואז עצרי והמתיני ללקוח: ${openingText}`;
         const greetMsg = {
           clientContent: {
             turns: [
