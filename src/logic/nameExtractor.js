@@ -101,6 +101,8 @@ function sanitizeCandidate(raw, opts = {}) {
   let t = stripPunct(raw);
   if (!t) return null;
   if (looksLikeClassificationPhrase(t)) return null;
+  if (/^(?:אני\s+)?(?:לקוח(?:ות)?|לקוחות?)\b/u.test(t)) return null;
+  if (/^(?:עסקי(?:ת|ים|ות)?|פרטי(?:ת|ים|ות)?|חדשי(?:ם)?|קיימי(?:ם)?)$/u.test(t)) return null;
 
   t = t.replace(/^(שלום|היי|הלו)\s+/u, "");
   t = t.replace(/^(אני|שמי|קוראים לי)\s+/u, "");
@@ -156,8 +158,7 @@ function extractCallerName({ userText, lastBotUtterance }) {
 
   const patterns = [
     { re: /(?:^|\b)שלום\s+אני\s+(.+)$/iu, reason: "explicit_shalom_ani" },
-    { re: /(?:^|\b)אני\s+(.+)$/iu, reason: "explicit_ani" },
-    { re: /(?:^|\b)קוראים\s+לי\s+(.+)$/iu, reason: "explicit_korim_li" },
+        { re: /(?:^|\b)קוראים\s+לי\s+(.+)$/iu, reason: "explicit_korim_li" },
     { re: /(?:^|\b)שמי\s+(.+)$/iu, reason: "explicit_shmi" },
     { re: /(?:^|\b)השם\s+שלי\s+זה\s+(.+)$/iu, reason: "explicit_hashem_sheli_ze" },
     { re: /(?:^|\b)השם\s+שלי\s+(.+)$/iu, reason: "explicit_hashem_sheli" },

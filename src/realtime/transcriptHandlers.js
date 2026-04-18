@@ -535,7 +535,7 @@ function handleUserTranscript(session, nlp) {
 
     try {
       const explicitHebName = collapseHebrewSpacing(normalizedUserText).match(
-        /(?:קוראים לי|שמי|השם שלי|אני)\s+([\u0590-\u05FF]{2,}(?:\s+[\u0590-\u05FF]{2,}){0,2})/u
+        /(?:קוראים לי|שמי|השם שלי|השם שלי זה|שלום אני)\s+([\u0590-\u05FF]{2,}(?:\s+[\u0590-\u05FF]{2,}){0,2})/u
       );
       const directName = normalizeLikelyName(explicitHebName?.[1] || "");
       if (directName && hasHebrewLetters(directName)) {

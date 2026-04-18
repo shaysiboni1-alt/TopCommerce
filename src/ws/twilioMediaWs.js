@@ -39,6 +39,8 @@ function installTwilioMediaWs(server) {
     let stopped = false;
 
     const preState = { prevX: 0, prevY: 0 };
+    let voiceActiveFrames = 0;
+    let lastVoiceAt = 0;
     const aec = new TelephonyAec({
       sampleRate: 16000,
       historyMs: env.MB_AEC_HISTORY_MS,
