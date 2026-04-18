@@ -161,6 +161,35 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
       matched.push("לא");
     }
 
+    // noisy Hebrew / split-token fallback for core telephony classification turns
+    if (intentId === "new_customer") {
+      if (/(לקוחות?\s*חדשי(?:ם)?|לקוח\s*חדש|לקוח(?:ד|ת)?\s*ש|חדש(?:ים)?)/u.test(nv) || compact.includes("לקוחותחדשי") || compact.includes("לקוחדש")) {
+        score += 7;
+        matched.push("חדש");
+      }
+    }
+
+    if (intentId === "existing_customer") {
+      if (/(לקוחות?\s*קיימי(?:ם)?|לקוח\s*קיים|קיימ(?:ים|י)?|ותיק(?:ים)?)/u.test(nv) || compact.includes("לקוחותקיימ") || compact.includes("לקוחקיים")) {
+        score += 7;
+        matched.push("קיים");
+      }
+    }
+
+    if (intentId === "business_customer") {
+      if (/(עסקי(?:ת|ים)?)/u.test(nv) || compact.includes("עסקי")) {
+        score += 7;
+        matched.push("עסקי");
+      }
+    }
+
+    if (intentId === "private_customer") {
+      if (/(פרטי(?:ת|ים)?)/u.test(nv) || compact.includes("פרטי")) {
+        score += 7;
+        matched.push("פרטי");
+      }
+    }
+
     if (score <= 0) continue;
 
     const candidate = {

@@ -678,7 +678,8 @@ class GeminiLiveSession {
     this.ws.on("close", async (code, reasonBuf) => {
       const reason = reasonBuf ? reasonBuf.toString("utf8") : "";
       const openingWindowActive = this._openingPhase || (Date.now() - Number(this._openingSentAt || 0) < 2500);
-      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 2 && !openingWindowActive;
+      const maxReconnectAttempts = openingWindowActive ? 1 : 2;
+      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < maxReconnectAttempts;
       this.closed = true;
       this.ready = false;
       this.ws = null;

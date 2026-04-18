@@ -437,9 +437,50 @@ function canonicalizeCommonBusinessPhrases(text) {
   if (!t) return t;
   return t
     .replace(/לקוחות\s+חדשי(?:\.|\b)/gu, 'לקוחות חדשים')
+    .replace(/לקוחות\s+חדשי$/gu, 'לקוחות חדשים')
     .replace(/לקוחות\s+קיימי(?:\.|\b)/gu, 'לקוחות קיימים')
+    .replace(/לקוחות\s+קיימי$/gu, 'לקוחות קיימים')
+    .replace(/לקוח(?:ד|ת)?\s*ש(?:\.|\b)/gu, 'לקוח חדש')
+    .replace(/לקוח\s+חד(?:\.|\b)/gu, 'לקוח חדש')
     .replace(/לקוח\s+עסקי(?:\.|\b)/gu, 'לקוח עסקי')
     .replace(/לקוח\s+פרטי(?:\.|\b)/gu, 'לקוח פרטי');
+}
+
+function detectNoisyClassificationIntent(text) {
+  const value = canonicalizeCommonBusinessPhrases(text);
+  const compact = safeStr(value).replace(/\s+/g, '');
+  if (!value) return '';
+  if (/(לקוחות?\s*חדשים|לקוח\s*חדש|חדש(?:ים)?)/u.test(value) || compact.includes('לקוחותחדשי') || compact.includes('לקוחדש')) return 'new_customer';
+  if (/(לקוחות?\s*קיימים|לקוח\s*קיים|קיימ(?:ים)?|ותיק(?:ים)?)/u.test(value) || compact.includes('לקוחותקיימ') || compact.includes('לקוחקיים')) return 'existing_customer';
+  if (/(עסקי(?:ת|ים)?)/u.test(value) || compact.includes('עסקי')) return 'business_customer';
+  if (/(פרטי(?:ת|ים)?)/u.test(value) || compact.includes('פרטי')) return 'private_customer';
+  return '';
+}
+
+function isClassificationCollectionStage(mem) {
+  if (!mem || typeof mem !== 'object') return true;
+  if (mem.awaitingCallbackConfirmation || mem.collectedFields?.subject || mem.collectedFields?.callback) return false;
+  return !mem.collectedFields?.intent || ['new_customer','existing_customer','business_customer','private_customer'].includes(safeStr(mem.intent));
+}
+
+function buildLowConfidenceClarification(session, mem, fuzzyIntentId = '') {
+  const intentId = safeStr(fuzzyIntentId || mem?.intent || session?._lastDetectedIntent);
+  const askExistingOrNew = getApprovedScriptText(session, 'ASK_EXISTING_OR_NEW', 'לקוחות חדשים או קיימים?');
+  const askSegment = getApprovedScriptText(session, 'ASK_NEW_SEGMENT', 'עסקי או פרטי?');
+  const askName = getApprovedScriptText(session, 'ASK_NAME', 'מה השם בבקשה?');
+  const askProduct = getApprovedScriptText(session, 'ASK_PRODUCT_INTEREST', 'במה אתם מתעניינים?');
+  const askNeedReturning = getApprovedScriptText(session, 'ASK_EXISTING_NEED', 'במה אפשר לעזור?');
+  const callerKnown = !!safeStr(session?.meta?.caller_profile?.display_name || mem?.callerName);
+  const skipKnownCallerNameAsk = getKnownCallerSkipNameAsk();
+  const hasName = !!((skipKnownCallerNameAsk && callerKnown) || mem?.collectedFields?.name || callerKnown);
+  const hasSubject = !!mem?.collectedFields?.subject;
+
+  if (!intentId) return { text: askExistingOrNew, label: 'LOW_CONFIDENCE_REASK_CLASSIFICATION' };
+  if (intentId === 'new_customer') return { text: askSegment, label: 'LOW_CONFIDENCE_REASK_SEGMENT' };
+  if (intentId === 'existing_customer') return { text: askNeedReturning, label: 'LOW_CONFIDENCE_REASK_NEED' };
+  if ((intentId === 'business_customer' || intentId === 'private_customer') && !hasName) return { text: askName, label: 'LOW_CONFIDENCE_REASK_NAME' };
+  if ((intentId === 'business_customer' || intentId === 'private_customer') && !hasSubject) return { text: askProduct, label: 'LOW_CONFIDENCE_REASK_PRODUCT' };
+  return { text: getApprovedScriptText(session, 'ERROR_REPEAT', 'סליחה, לא הבנתי. אפשר להגיד שוב בקצרה?'), label: 'LOW_CONFIDENCE_CLARIFY_SENT' };
 }
 
 function resetLowConfidenceTurns(session) {
@@ -566,6 +607,8 @@ function handleUserTranscript(session, nlp) {
 
     if (looksLikeLowConfidenceHebrewTurn(normalizedNlp, normalizedUserText) && !shouldOverrideLowConfidence(session, normalizedUserText)) {
       const lowConfidenceState = noteLowConfidenceTurn(session);
+      const fuzzyIntentId = detectNoisyClassificationIntent(normalizedUserText);
+      const classificationStage = isClassificationCollectionStage(memSnapshot);
       logger.info("LOW_CONFIDENCE_USER_TURN_IGNORED", {
         ...session.meta,
         count: lowConfidenceState.count,
@@ -574,7 +617,19 @@ function handleUserTranscript(session, nlp) {
         normalized_text: normalizedNlp.normalized_text,
         recovered_text: normalizedNlp.recovered_text,
         final_text: normalizedNlp.final_text,
+        fuzzy_intent_id: fuzzyIntentId || null,
+        classification_stage: classificationStage,
       });
+
+      if (fuzzyIntentId) {
+        session._lastDetectedIntent = fuzzyIntentId;
+        session._orchestrator?.noteIntent?.(fuzzyIntentId);
+        const clarify = buildLowConfidenceClarification(session, session._orchestrator?.memory?.snapshot?.() || memSnapshot, fuzzyIntentId);
+        if (clarify?.text) {
+          safeImmediateText(session, clarify.text, clarify.label || 'LOW_CONFIDENCE_CLARIFY_SENT');
+          return true;
+        }
+      }
 
       if (looksLikeClarificationNeed(normalizedUserText)) {
         const retryText = getApprovedScriptText(
@@ -584,6 +639,14 @@ function handleUserTranscript(session, nlp) {
         );
         safeImmediateText(session, retryText, "LOW_CONFIDENCE_CLARIFY_SENT");
         return true;
+      }
+
+      if (classificationStage) {
+        const clarify = buildLowConfidenceClarification(session, memSnapshot, '');
+        if (clarify?.text) {
+          safeImmediateText(session, clarify.text, clarify.label || 'LOW_CONFIDENCE_CLARIFY_SENT');
+          return true;
+        }
       }
 
       if (lowConfidenceState.count >= 2) {

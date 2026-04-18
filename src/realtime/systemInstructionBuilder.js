@@ -53,6 +53,37 @@ function buildSupportedIntentSummary(ssot) {
     .trim();
 }
 
+function limitText(value, maxLen = 420) {
+  const text = safeStr(value).replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen).trim()}…`;
+}
+
+function buildCompactApprovedScripts(ssot) {
+  const rows = approvedRows(ssot?.script_suggestions);
+  const preferred = new Set([
+    "ASK_EXISTING_OR_NEW",
+    "ASK_EXISTING_NEED",
+    "ASK_NEW_SEGMENT",
+    "ASK_NAME",
+    "ASK_PRODUCT_INTEREST",
+    "ASK_CALLBACK_CONFIRM",
+    "CALLBACK_ALT_NUMBER_PHRASE",
+    "ERROR_REPEAT",
+    "CLOSING",
+  ]);
+  const out = [];
+  for (const row of rows) {
+    const key = safeStr(row?.script_key);
+    if (!key || !preferred.has(key)) continue;
+    const text = safeStr(row?.suggested_text || row?.text || row?.content);
+    if (!text) continue;
+    out.push(`- ${key}: ${limitText(text, 100)}`);
+    if (out.length >= 8) break;
+  }
+  return out.join("\n").trim();
+}
+
 function normalizeRuntimeMeta(runtimeMeta, settings) {
   return {
     caller_name: safeStr(runtimeMeta?.caller_name) || safeStr(runtimeMeta?.display_name) || "",
@@ -104,11 +135,11 @@ function buildBaseInstructionFromSSOT(ssot, runtimeMeta) {
   ].join("\n"));
 
   if (compactMode) {
-    const compactBusiness = [
+    const compactBusiness = limitText([
       safeStr(settings.BUSINESS_DESCRIPTION),
       safeStr(settings.BUSINESS_SERVICES_LIST),
       safeStr(settings.BUSINESS_SPECIAL_NOTES),
-    ].filter(Boolean).join(" ").trim();
+    ].filter(Boolean).join(" ").trim(), 420);
 
     const compactFlow = [
       "FLOW:",
