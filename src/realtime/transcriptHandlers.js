@@ -276,6 +276,7 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
   const isReturningFlow = callerKnown || intentId === "existing_customer" || stage === "discover_need" || stage === "clarify_need";
 
   const askSegment = getApprovedScriptText(session, "ASK_NEW_SEGMENT", "אמרו לי בבקשה האם אתם לקוחות עסקיים או פרטיים");
+  const askExistingOrNew = getApprovedScriptText(session, "ASK_EXISTING_OR_NEW", "לפני שנתחיל, האם אתם לקוחות חדשים או לקוחות קיימים?");
   const askName = getApprovedScriptText(session, "ASK_NAME", "הבנתי, תודה. אמרו לי מה השם בבקשה");
   const askProduct = getApprovedScriptText(session, "ASK_PRODUCT_INTEREST", "נהדר, אשמח שתפרטו לי באיזה מוצר או שירות שלנו אתם מתעניינים");
   const askNeedReturning = getApprovedScriptText(session, "ASK_EXISTING_NEED", "איזה כיף לשמוע מכם שוב, אמרו לי בבקשה במה אפשר לעזור");
@@ -283,6 +284,10 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
 
   if (intentId === "new_customer") {
     return { text: askSegment, label: "FLOW_ASK_SEGMENT_SENT" };
+  }
+
+  if (intentId === "other" && /(?:חדשים|קיימים)/u.test(safeStr(normalizedUserText))) {
+    return { text: askExistingOrNew, label: "FLOW_REASK_EXISTING_NEW_SENT" };
   }
 
   if ((intentId === "business_customer" || intentId === "private_customer") && !hasName) {

@@ -100,27 +100,46 @@ function buildBaseInstructionFromSSOT(ssot, runtimeMeta) {
     "- Prefer short, focused follow-up questions.",
     "- If the caller corrects you, apologize briefly, align to the correction, and continue naturally.",
     "- If the call is only for information, answer briefly and do not force lead capture.",
-    "- Use approved SSOT scripts and approved KB only; do not invent business rules or unsupported facts.",
+    "- Use approved SSOT scripts and approved KB only; do not invent unsupported facts.",
   ].join("\n"));
 
-  ["MASTER_PROMPT", "GUARDRAILS_PROMPT", "KB_PROMPT", "LEAD_CAPTURE_PROMPT", "INTENT_ROUTER_PROMPT"].forEach((key) => {
-    const content = safeStr(promptStack[key]);
-    if (content) sections.push(`${key}:\n${content}`);
-  });
+  if (compactMode) {
+    const compactBusiness = [
+      safeStr(settings.BUSINESS_DESCRIPTION),
+      safeStr(settings.BUSINESS_SERVICES_LIST),
+      safeStr(settings.BUSINESS_SPECIAL_NOTES),
+    ].filter(Boolean).join(" ").trim();
 
-  const approvedScripts = buildApprovedScripts(ssot);
-  if (approvedScripts) {
-    sections.push(`APPROVED_SCRIPT_SNIPPETS:\n${approvedScripts}`);
-  }
+    const compactFlow = [
+      "FLOW:",
+      "- Returning/known caller: ask briefly what they need, do not ask name again if already known, then confirm callback number.",
+      "- New caller: classify new/existing, then ask business/private, then name only if still missing, then product/need, then callback number.",
+      "- If the caller asks for info, answer briefly from approved knowledge and then continue lead capture politely.",
+      "- If not understood, ask one short clarification question.",
+    ].join("\n");
 
-  const approvedKbFacts = buildApprovedKbFacts(ssot);
-  if (approvedKbFacts) {
-    sections.push(`APPROVED_KB_FACTS:\n${approvedKbFacts}`);
-  }
+    if (compactBusiness) sections.push(`BUSINESS SNAPSHOT:\n${compactBusiness}`);
+    sections.push(compactFlow);
 
-  const intentSummary = buildSupportedIntentSummary(ssot);
-  if (intentSummary) {
-    sections.push(`SUPPORTED_INTENTS:\n${intentSummary}`);
+    const approvedScripts = buildApprovedScripts(ssot);
+    if (approvedScripts) sections.push(`APPROVED_SCRIPT_SNIPPETS:\n${approvedScripts}`);
+
+    const intentSummary = buildSupportedIntentSummary(ssot);
+    if (intentSummary) sections.push(`SUPPORTED_INTENTS:\n${intentSummary}`);
+  } else {
+    ["MASTER_PROMPT", "GUARDRAILS_PROMPT", "KB_PROMPT", "LEAD_CAPTURE_PROMPT", "INTENT_ROUTER_PROMPT"].forEach((key) => {
+      const content = safeStr(promptStack[key]);
+      if (content) sections.push(`${key}:\n${content}`);
+    });
+
+    const approvedScripts = buildApprovedScripts(ssot);
+    if (approvedScripts) sections.push(`APPROVED_SCRIPT_SNIPPETS:\n${approvedScripts}`);
+
+    const approvedKbFacts = buildApprovedKbFacts(ssot);
+    if (approvedKbFacts) sections.push(`APPROVED_KB_FACTS:\n${approvedKbFacts}`);
+
+    const intentSummary = buildSupportedIntentSummary(ssot);
+    if (intentSummary) sections.push(`SUPPORTED_INTENTS:\n${intentSummary}`);
   }
 
   sections.push([

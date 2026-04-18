@@ -155,6 +155,9 @@ class GeminiLiveSession {
     this.closed = false;
     this._greetingSent = false;
     this._providerReconnectAttempts = 0;
+    this._lastBotText = "";
+    this._lastBotTextAt = 0;
+    this._openingPromptSent = false;
     this._providerRecovering = false;
     this._stopRequested = false;
     this._lastImmediatePrompt = null;
@@ -439,6 +442,9 @@ class GeminiLiveSession {
       this.callSession?.markTimeline?.("provider_session_ready_at");
       logger.info("Gemini Live WS connected", this.meta);
       if (!this._providerRecovering) this._providerReconnectAttempts = 0;
+    this._lastBotText = "";
+    this._lastBotTextAt = 0;
+    this._openingPromptSent = false;
 
       recordCallEvent({
         callSid: this._getCallData().callSid,
@@ -553,7 +559,7 @@ class GeminiLiveSession {
           }
         }
 
-        const openingPlayed = String(this.meta?.opening_played || "") === "1";
+        const openingPlayed = String(this.meta?.opening_played || "") === "1" || this._openingPromptSent;
         if (openingPlayed) {
           logger.info("Opening already played by Twilio; skipping Gemini greeting", this.meta);
           this._endOpeningPhase("opening_already_played");
@@ -592,20 +598,8 @@ class GeminiLiveSession {
 
         this._beginOpeningPhase();
 
-        const openingInstruction = `אמרי עכשיו בדיוק את המשפט הבא, בלי לשנות מילים, ואז עצרי והמתיני ללקוח: ${openingText}`;
-        const greetMsg = {
-          clientContent: {
-            turns: [
-              {
-                role: "user",
-                parts: [{ text: openingInstruction }],
-              },
-            ],
-            turnComplete: true,
-          },
-        };
-
-        this.ws.send(JSON.stringify(greetMsg));
+        this._openingPromptSent = true;
+        this._sendImmediateText(openingText, "OPENING_SENT");
         this.callSession?.markTimeline?.("first_opening_sent_at");
         this._greetingSent = true;
       } catch (e) {
@@ -635,9 +629,12 @@ class GeminiLiveSession {
             }
           } else if (typeof p?.text === "string") {
             const cleaned = scrubReasoningText(p.text);
-            const suppressed = this._shouldSuppressBotText(cleaned);
+            const duplicateBotText = cleaned && cleaned === this._lastBotText && (Date.now() - this._lastBotTextAt) < 2500;
+            const suppressed = this._shouldSuppressBotText(cleaned) || duplicateBotText;
             if (cleaned && !suppressed && this.onGeminiText) this.onGeminiText(cleaned);
             if (cleaned && !suppressed) {
+              this._lastBotText = cleaned;
+              this._lastBotTextAt = Date.now();
               this._onTranscriptChunk("bot", cleaned);
             } else if (cleaned && suppressed) {
               recordCallEvent({
@@ -674,7 +671,7 @@ class GeminiLiveSession {
 
     this.ws.on("close", async (code, reasonBuf) => {
       const reason = reasonBuf ? reasonBuf.toString("utf8") : "";
-      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 1;
+      const reconnectable = !this._stopRequested && Number(code) === 1011 && this._providerReconnectAttempts < 2;
       this.closed = true;
       this.ready = false;
       this.ws = null;
@@ -710,7 +707,7 @@ class GeminiLiveSession {
           this.closed = false;
           this.ready = false;
           this.start();
-        }, 350);
+        }, this._providerReconnectAttempts > 1 ? 900 : 350);
         return;
       }
 
