@@ -30,9 +30,23 @@ const INVALID_SINGLE_TOKEN_HE = new Set([
   "שעות","פעילות","עזרה","בעיה","חזרה","מבטא","קול","בשם"
 ]);
 
+
+const CLASSIFICATION_PHRASES_HE = [
+  /(?:^|\b)לקוחות?\s+חדשי(?:ם)?(?:\b|$)/u,
+  /(?:^|\b)לקוחות?\s+קיימי(?:ם)?(?:\b|$)/u,
+  /(?:^|\b)לקוח(?:ות)?\s+עסקי(?:ת|ים|ות)?(?:\b|$)/u,
+  /(?:^|\b)לקוח(?:ות)?\s+פרטי(?:ת|ים|ות)?(?:\b|$)/u,
+];
+
+function looksLikeClassificationPhrase(text) {
+  const t = collapseHebrewSpacing(String(text || ""));
+  if (!t) return false;
+  return CLASSIFICATION_PHRASES_HE.some((re) => re.test(t));
+}
+
 const INVALID_ANY_TOKEN_HE = new Set([
   "אני","היא","הוא","אנחנו","אתם","אתן","בת","אישה","גברת","אדוני","צריך","צריכה",
-  "צריכים","צריכות","רוצה","רציתי","מחפש","מחפשת","שלום","הלו","כן","לא","משרד","מיטל","טופ","קומרס"
+  "צריכים","צריכות","רוצה","רציתי","מחפש","מחפשת","שלום","הלו","כן","לא","משרד","מיטל","טופ","קומרס","לקוח","לקוחות","עסקי","פרטי","חדשים","חדשי","קיימים","קיים","לקוח","לקוחות","עסקי","עסקי.","פרטי","חדשים","חדשי","קיימים","קיים"
 ]);
 
 function collapseHebrewSpacing(s) {
@@ -86,6 +100,7 @@ function sanitizeCandidate(raw, opts = {}) {
 
   let t = stripPunct(raw);
   if (!t) return null;
+  if (looksLikeClassificationPhrase(t)) return null;
 
   t = t.replace(/^(שלום|היי|הלו)\s+/u, "");
   t = t.replace(/^(אני|שמי|קוראים לי)\s+/u, "");
@@ -154,6 +169,7 @@ function extractCallerName({ userText, lastBotUtterance }) {
   for (const p of patterns) {
     const m = raw.match(p.re);
     if (!m || !m[1]) continue;
+    if (looksLikeClassificationPhrase(m[1])) continue;
     const cand = sanitizeCandidate(m[1], { explicit: true });
     if (cand) return { name: cand, reason: p.reason };
   }

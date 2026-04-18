@@ -368,6 +368,19 @@ function installTwilioMediaWs(server) {
 
           const processed = preprocessInt16(samples, preState, preprocessOptions);
           const currentRms = processed.metrics.outputRms || rmsInt16(processed.samples);
+          const minVoiceRms = Number(process.env.MB_BACKGROUND_NOISE_MIN_RMS || 0.012);
+          const voiceFramesNeeded = Math.max(1, Number(process.env.MB_BACKGROUND_NOISE_MIN_FRAMES || 2));
+          const voiceHoldMs = Math.max(120, Number(process.env.MB_BACKGROUND_NOISE_HOLD_MS || 420));
+          if (currentRms >= minVoiceRms) {
+            voiceActiveFrames += 1;
+            lastVoiceAt = Date.now();
+          } else {
+            voiceActiveFrames = 0;
+          }
+          const shouldForwardUserAudio = voiceActiveFrames >= voiceFramesNeeded || (Date.now() - lastVoiceAt) <= voiceHoldMs;
+          if (!shouldForwardUserAudio) {
+            return;
+          }
           const baseAllowed = !(gemini?.isBargeInAllowed) || gemini.isBargeInAllowed();
           const allowBarge = gemini?.shouldAllowBargeIn
             ? gemini.shouldAllowBargeIn({

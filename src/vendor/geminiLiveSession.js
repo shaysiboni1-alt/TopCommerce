@@ -101,7 +101,11 @@ function shouldIgnoreAssistantTranscript(session, finalText) {
   })();
   const compactRecentUser = normalizeCompactHebrew(recentUserText);
   const compactValue = normalizeCompactHebrew(value);
+  const compactOpening = normalizeCompactHebrew(session?.meta?.prebuilt_opening_text || "");
+  const compactImmediate = normalizeCompactHebrew(session?._lastImmediatePrompt?.text || "");
   if (compactRecentUser && compactValue && compactRecentUser === compactValue) return true;
+  if (compactOpening && compactValue && compactOpening === compactValue) return true;
+  if (compactImmediate && compactValue && compactImmediate === compactValue) return true;
   if (looksLikeReasoningText(value)) return true;
   const compact = value.replace(/\s+/g, '');
   if (compact.length <= 2) return true;
@@ -554,7 +558,7 @@ class GeminiLiveSession {
           const replay = this._lastImmediatePrompt && (Date.now() - Number(this._lastImmediatePrompt.at || 0) <= 15000)
             ? this._lastImmediatePrompt
             : null;
-          if (replay?.text) {
+          if (replay?.text && !['OPENING_SENT','NAME_ACK_SENT'].includes(String(replay.label || ''))) {
             setTimeout(() => this._sendImmediateText(replay.text, replay.label || "PROVIDER_RECOVERY_REPLAY_SENT"), 180);
             return;
           }
@@ -666,7 +670,8 @@ class GeminiLiveSession {
 
         const outTr = msg?.serverContent?.outputTranscription?.text;
         const cleanedOut = scrubReasoningText(String(outTr || ""));
-        if (cleanedOut && !isInternalLabelText(cleanedOut)) this._onTranscriptChunk("bot", cleanedOut);
+        const duplicateOut = cleanedOut && cleanedOut === this._lastBotText && (Date.now() - this._lastBotTextAt) < 2500;
+        if (cleanedOut && !isInternalLabelText(cleanedOut) && !this._shouldSuppressBotText(cleanedOut) && !duplicateOut) this._onTranscriptChunk("bot", cleanedOut);
       } catch {}
     });
 

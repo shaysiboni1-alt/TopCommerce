@@ -425,6 +425,23 @@ function noteLowConfidenceTurn(session) {
   return state;
 }
 
+
+function looksLikeClarificationNeed(text) {
+  const t = safeStr(text);
+  if (!t) return false;
+  return /(לא\s*הבנתי|מה\s+זאת\s+אומרת|מה\s+זה\s+אומר|אפשר\s+להסביר|לא\s+שמעתי\s+טוב|שאלה)/u.test(t);
+}
+
+function canonicalizeCommonBusinessPhrases(text) {
+  let t = safeStr(text);
+  if (!t) return t;
+  return t
+    .replace(/לקוחות\s+חדשי(?:\.|\b)/gu, 'לקוחות חדשים')
+    .replace(/לקוחות\s+קיימי(?:\.|\b)/gu, 'לקוחות קיימים')
+    .replace(/לקוח\s+עסקי(?:\.|\b)/gu, 'לקוח עסקי')
+    .replace(/לקוח\s+פרטי(?:\.|\b)/gu, 'לקוח פרטי');
+}
+
 function resetLowConfidenceTurns(session) {
   if (!session || typeof session !== "object") return;
   session._lowConfidenceTurnState = { count: 0, lastAt: 0 };
@@ -450,7 +467,7 @@ function handleUserTranscript(session, nlp) {
       return true;
     }
 
-    const normalizedUserText = stripNoiseMarkers(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw);
+    const normalizedUserText = canonicalizeCommonBusinessPhrases(stripNoiseMarkers(normalizedNlp.recovered || normalizedNlp.normalized || normalizedNlp.raw));
     if (isIgnorableNoiseText(normalizedUserText)) {
       logger.info("IGNORED_NOISE_USER_TRANSCRIPT", {
         ...session.meta,
@@ -558,6 +575,16 @@ function handleUserTranscript(session, nlp) {
         recovered_text: normalizedNlp.recovered_text,
         final_text: normalizedNlp.final_text,
       });
+
+      if (looksLikeClarificationNeed(normalizedUserText)) {
+        const retryText = getApprovedScriptText(
+          session,
+          "ERROR_REPEAT",
+          "סליחה, לא הבנתי. אפשר להגיד שוב בקצרה?"
+        );
+        safeImmediateText(session, retryText, "LOW_CONFIDENCE_CLARIFY_SENT");
+        return true;
+      }
 
       if (lowConfidenceState.count >= 2) {
         const retryText = getApprovedScriptText(
