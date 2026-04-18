@@ -95,7 +95,6 @@ class ConversationOrchestrator {
     if (role === "assistant") {
       this.turnManager.noteAssistantTurn();
       this.memory.noteAssistantTurn(value);
-      this.silenceManager.arm(Date.now());
     } else {
       this.turnManager.noteUserTurn();
       this.memory.noteUserTurn(value, true);

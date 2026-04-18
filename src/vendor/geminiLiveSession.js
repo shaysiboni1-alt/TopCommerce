@@ -192,7 +192,8 @@ class GeminiLiveSession {
       getStableGapMs: (who) => (who === "user" ? this._getUserMinStableGapMs() : this._getBotMinStableGapMs()),
       shouldDelayFlush: (who, bufferedText, ctx) => {
         if (who !== "user") return false;
-        if (!this._isShortUserFragment(bufferedText)) return false;
+        const shouldHold = this._isShortUserFragment(bufferedText) || this._looksIncompleteUserThought(bufferedText);
+        if (!shouldHold) return false;
         const maxAgeMs = Math.max(ctx.stableGapMs * 2, getUserTranscriptMaxBufferMs());
         return ctx.bufferAgeMs < maxAgeMs;
       },

@@ -1,5 +1,7 @@
 "use strict";
 
+const { SSOT_FALLBACK_DEFAULTS } = require("./ssotFallbackDefaults");
+
 function raw(name, def = "") {
   const v = process.env[name];
   return v === undefined || v === null || v === "" ? def : v;
@@ -25,6 +27,13 @@ function parseFloatSafe(v, def) {
   return Number.isFinite(n) ? n : def;
 }
 
+function castFromDefaultType(value, def) {
+  if (typeof def === "boolean") return parseBool(value, def);
+  if (typeof def === "number" && Number.isInteger(def)) return parseIntSafe(value, def);
+  if (typeof def === "number") return parseFloatSafe(value, def);
+  return value === undefined || value === null ? def : String(value);
+}
+
 const SECRET_KEYS = new Set([
   "DATABASE_URL",
   "GEMINI_API_KEY",
@@ -40,7 +49,7 @@ const SECRET_KEYS = new Set([
 
 // Runtime/business settings are loaded primarily from Google Sheets (SSOT).
 // The values here are in-memory defaults and safe fallback values only.
-const SETTING_DEFAULTS = {
+const BASE_SETTING_DEFAULTS = {
   BUSINESS_NAME: "",
   BOT_NAME: "",
   DEFAULT_LANGUAGE: "he",
@@ -171,6 +180,14 @@ const SETTING_DEFAULTS = {
   MB_END_CALL_DELAY_MS: 1200,
   PORT: 10000,
 };
+
+const SETTING_DEFAULTS = { ...BASE_SETTING_DEFAULTS };
+
+for (const [key, value] of Object.entries(SSOT_FALLBACK_DEFAULTS || {})) {
+  if (key === "PORT") continue;
+  if (!Object.prototype.hasOwnProperty.call(BASE_SETTING_DEFAULTS, key)) continue;
+  SETTING_DEFAULTS[key] = castFromDefaultType(value, BASE_SETTING_DEFAULTS[key]);
+}
 
 function castSettingValue(key, value) {
   const def = SETTING_DEFAULTS[key];

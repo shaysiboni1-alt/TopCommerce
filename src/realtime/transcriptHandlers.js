@@ -297,13 +297,11 @@ function maybeGetStructuredFollowup(session, normalizedUserText, intent) {
     return null;
   }
 
-  if (isReturningFlow && looksMeaningful && !hasSubject && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other" && intentId !== "yes") {
+  if (isReturningFlow && looksMeaningful && hasSubject && !hasCallback && intentId !== "repeat" && intentId !== "negation" && intentId !== "caller_correction" && intentId !== "other" && intentId !== "yes") {
     if (!hasName && !callerKnown) {
       return { text: askName, label: "FLOW_ASK_NAME_SENT" };
     }
-    if (!hasCallback) {
-      return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
-    }
+    return { text: askCallback, label: "CALLBACK_ASK_SENT", callback: true };
   }
 
   return null;
@@ -343,6 +341,47 @@ function isIgnorableShortBotEcho(session, text) {
   if (compact.length <= 2) return true;
   if (/^[֐-׿]{1,2}$/u.test(compact)) return true;
   return false;
+}
+
+function countSingleHebrewLetterTokens(text) {
+  return safeStr(text)
+    .split(/[^\u0590-\u05FF]+/u)
+    .map((part) => safeStr(part))
+    .filter((part) => /^[א-ת]$/u.test(part)).length;
+}
+
+function looksLikeLowConfidenceHebrewTurn(nlp, normalizedUserText) {
+  const value = safeStr(normalizedUserText).replace(/\s+/g, " ").trim();
+  const raw = safeStr(nlp?.raw_text || nlp?.raw || "");
+  const compact = value.replace(/\s+/g, "");
+
+  if (!value) return true;
+  if (compact.length < 6) return true;
+  if (/^(היי|שלום|היי, שלום|שלום לך)[\s,.!?]*[א-ת]?$/u.test(value)) return true;
+  if (/[א-ת]$/u.test(value) && compact.length <= 18) return true;
+  if (/\b(בעצם|רציתי|אני רוצה|אני צריך|אפשר|שאלה)\b/u.test(value) && compact.length <= 24 && !/[?.!]$/u.test(value)) return true;
+
+  const isolated = countSingleHebrewLetterTokens(raw || value);
+  if (isolated >= 2) return true;
+
+  if (/תילדעת/u.test(compact)) return true;
+  return false;
+}
+
+function noteLowConfidenceTurn(session) {
+  if (!session || typeof session !== "object") return { count: 0 };
+  const now = Date.now();
+  const state = session._lowConfidenceTurnState || { count: 0, lastAt: 0 };
+  if (!state.lastAt || now - state.lastAt > 6000) state.count = 0;
+  state.count += 1;
+  state.lastAt = now;
+  session._lowConfidenceTurnState = state;
+  return state;
+}
+
+function resetLowConfidenceTurns(session) {
+  if (!session || typeof session !== "object") return;
+  session._lowConfidenceTurnState = { count: 0, lastAt: 0 };
 }
 
 function handleUserTranscript(session, nlp) {
@@ -461,10 +500,32 @@ function handleUserTranscript(session, nlp) {
 
     const callbackText = normalizedUserText;
     const memSnapshot = session._orchestrator?.memory?.snapshot?.() || {};
+
+    if (looksLikeLowConfidenceHebrewTurn(normalizedNlp, normalizedUserText)) {
+      const lowConfidenceState = noteLowConfidenceTurn(session);
+      logger.info("LOW_CONFIDENCE_USER_TURN_IGNORED", {
+        ...session.meta,
+        count: lowConfidenceState.count,
+        text: normalizedUserText,
+        raw_text: normalizedNlp.raw_text,
+        normalized_text: normalizedNlp.normalized_text,
+        recovered_text: normalizedNlp.recovered_text,
+        final_text: normalizedNlp.final_text,
+      });
+
+      if (lowConfidenceState.count >= 2) {
+        const retryText = getApprovedScriptText(
+          session,
+          "ERROR_REPEAT",
+          safeStr(session.ssot?.settings?.NO_DATA_MESSAGE) || "סליחה, לא הבנתי, אפשר לחזור שוב"
+        );
+        safeImmediateText(session, retryText, "LOW_CONFIDENCE_REPEAT_SENT");
+      }
+      return true;
+    }
     const callbackQuestionActive = !!(
       session._awaitingCallbackConfirmation ||
-      memSnapshot.awaitingCallbackConfirmation ||
-      (memSnapshot.lastQuestionType === "callback" && memSnapshot.askedFields?.callback > 0)
+      memSnapshot.awaitingCallbackConfirmation
     );
     if (callbackQuestionActive) {
       if (refersToSameCallerNumber(callbackText, safeStr(session.meta?.caller))) {
@@ -492,6 +553,7 @@ function handleUserTranscript(session, nlp) {
       }
     }
 
+    resetLowConfidenceTurns(session);
     const shouldRunIntent = !isIgnorableNoiseText(normalizedUserText) && !isInternalLabelText(normalizedUserText);
     const intent = shouldRunIntent ? detectIntent({
       text: normalizedUserText,
