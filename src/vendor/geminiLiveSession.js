@@ -1047,7 +1047,7 @@ class GeminiLiveSession {
     let immediateLabel = "";
     if (role === "assistant") {
       const pendingText = safeStr(this._pendingImmediateExactText);
-      if (!pendingText || pendingText === safeStr(finalText)) {
+      if (!pendingText || normalizeUtterance(pendingText).normalized === normalizeUtterance(safeStr(finalText)).normalized) {
         immediateLabel = this._consumePendingImmediateLabel();
       }
     }
