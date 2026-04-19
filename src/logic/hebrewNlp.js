@@ -205,6 +205,7 @@ function joinCommonHebrewFragments(text) {
 
   s = s.replace(/\b([א-ת])\s+([א-ת]{2,})\b/gu, "$1$2");
   s = s.replace(/\b([א-ת]{2,})\s+([א-ת])\b/gu, "$1$2");
+  s = s.replace(/\b(?:[א-ת]\s+){1,}[א-ת]\b/gu, (m) => m.replace(/\s+/g, ""));
 
   s = joinSplitDigits(s);
 
