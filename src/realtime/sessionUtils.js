@@ -42,7 +42,7 @@ function isTruthyEnv(v) {
 function isClosingUtterance(text) {
   const t = safeStr(text);
   if (!t) return false;
-  if (/(תודה\s*ו?להתראות|להתראות|ביי|נתראה|יום טוב|המשך יום נעים|אשמח לעזור שוב)/.test(t)) return true;
+  if (/(תודה\s*ו?להתראות|להתראות|ביי|נתראה|יום טוב|יום נעים|ערב טוב|ערב נעים|צהריים טובים|המשך יום נעים|המשך ערב נעים|אשמח לעזור שוב|ניצור קשר בהקדם|נחזור אליכם|נחזור אליך)/.test(t)) return true;
   if (/(спасибо.*до свидания|до свидания|пока)/i.test(t)) return true;
   if (/(thank(s)?\b.*(bye|goodbye)|\bbye\b|\bgoodbye\b)/i.test(t)) return true;
   return false;

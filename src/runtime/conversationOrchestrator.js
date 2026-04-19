@@ -143,6 +143,8 @@ class ConversationOrchestrator {
       this.silenceManager.afterAssistantPrompt(level);
     } else if (label === "LONG_SILENCE_FINAL_PROMPT_SENT") {
       this.silenceManager.stop();
+    } else if (this.memory.snapshot().closing) {
+      this.silenceManager.stop();
     } else {
       this.silenceManager.arm(Date.now());
     }
