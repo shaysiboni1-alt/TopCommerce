@@ -243,7 +243,7 @@ function getApprovedScriptText(session, scriptKey, fallback = "") {
   for (const row of rows) {
     if (safeStr(row?.script_key) !== target) continue;
     const approved = safeStr(row?.approved || row?.Approved || row?.סטטוס || row?.status).toLowerCase();
-    if (approved && !["true", "1", "yes", "מאושר"].includes(approved)) continue;
+    if (!["true", "1", "yes", "מאושר"].includes(approved)) continue;
     const text = safeStr(row?.suggested_text || row?.text || row?.content);
     if (text) return text;
   }
