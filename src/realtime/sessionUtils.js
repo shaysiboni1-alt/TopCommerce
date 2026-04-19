@@ -53,7 +53,8 @@ function looksLikeReasoningText(text) {
   if (!t) return false;
   return (
     /\*\*.+\*\*/.test(t) ||
-    /\b(Composing the Response|Confirming|Implementing|Addressing|Gathering|Finalizing|Prioritizing|Initiating|Acknowledge|Pinpointing|Reasoning|I(?:'| a)m now|I've|I have successfully|I will now|The user is asking|triggering the|based on the context|SETTINGS_CONTEXT|OPENING_SCRIPT|INTENT_ROUTER_PROMPT|LEAD_CAPTURE_PROMPT)\b/i.test(t)
+    /\b(Composing the Response|Confirming|Implementing|Addressing|Gathering|Finalizing|Prioritizing|Initiating|Acknowledge|Pinpointing|Reasoning|I(?:'| a)m now|I've|I have successfully|I will now|The user is asking|triggering the|based on the context|SETTINGS_CONTEXT|OPENING_SCRIPT|OPENING_SCRIPT_RETURNING|INTENT_ROUTER_PROMPT|LEAD_CAPTURE_PROMPT|MASTER_PROMPT|GUARDRAILS_PROMPT|KB_PROMPT|INTENTS_TABLE|INTENT_SUGGESTIONS_TABLE|SCRIPT_SUGGESTIONS_TABLE|KB_SUGGESTIONS_TABLE)\b/i.test(t) ||
+    /^(?:לאחר קבלת השם יש לומר|ענה עכשיו רק במשפט הבא|יש לבחור תמיד|השיטס הוא מקור הידע|כאשר המתקשרים|אם המתקשרים|תחילת השיחה תמיד תהיה|המטרה הראשונה היא לקבל)/u.test(t)
   );
 }
 
@@ -77,15 +78,18 @@ function isNegativeUtterance(text) {
 }
 
 function containsCallbackRequest(text) {
-  const t = collapseHebrewSpacing(safeStr(text));
+  const raw = safeStr(text);
+  const t = collapseHebrewSpacing(raw);
   if (!t) return false;
-  return /(לחזור\s+אליי|תחזרו\s+אליי|שיחזרו\s+אליי|שתחזרי\s+אליי|תחזרי\s+אליי|לחזור\s+למספר|תחזרו\s+למספר|בקשת\s+חזרה|call me back|callback)/iu.test(t);
+  const spaced = raw.replace(/\s+/g, "");
+  return /(לחזור\s+אליי|תחזרו\s+אליי|שיחזרו\s+אליי|שתחזרי\s+אליי|תחזרי\s+אליי|לחזור\s+למספר|תחזרו\s+למספר|בקשת\s+חזרה|call me back|callback)/iu.test(t)
+    || /ש[הת]חזור|שיחזור|תחזור|תחזרו/u.test(spaced);
 }
 
 function isInternalLabelText(text) {
   const t = safeStr(text);
   if (!t) return false;
-  return /^(reports_request|callback_request|reach_margarita|ask_contact_info|leave_message|appointment_request|price_question|complaint|meta_voice_question|caller_correction|negation|other|existing_customer|new_customer|business_customer|private_customer|product_interest|yes|repeat)\.?$/i.test(t);
+  return /^(reports_request|callback_request|reach_margarita|ask_contact_info|leave_message|appointment_request|price_question|complaint|meta_voice_question|caller_correction|negation|other)\.?$/i.test(t);
 }
 
 function isLatinOnlyText(text) {
@@ -148,7 +152,9 @@ function refersToSameCallerNumber(text) {
   const t = collapseHebrewSpacing(normalized.recovered || normalized.normalized || raw);
   const compact = t.replace(/\s+/g, "");
   if (!t) return false;
-  return /(למספר הזה|למספר שממנו התקשרתי|למספר שממנו התקשרתם|למספר הנוכחי|למספר המזוהה|לאותו מספר)/iu.test(t) || /(המספרש(?:ממנו)?התקשרתי|מספרשהתקשרתי|ממנוהתקשרתי|אותומספר)/u.test(compact);
+  if (/(למספר הזה|למספר שממנו התקשרתי|למספר שממנו התקשרתם|למספר שממנו התקשרנו|למספר הנוכחי|למספר המזוהה|לאותו מספר)/iu.test(t)) return true;
+  if (/(^|\s)כן[, ]*(ה)?מספר\s+ש(?:ממנו|מנו)\s+התקשר(?:תי|נו|תם)(\s|$)/iu.test(t)) return true;
+  return /(המספרש(?:ממנו|מנו)?התקשר(?:תי|נו|תם)|מספרש(?:ממנו|מנו)?התקשר(?:תי|נו|תם)|ממנוהתקשר(?:תי|נו|תם)|אותומספר)/u.test(compact);
 }
 
 function refersToOtherNumber(text) {

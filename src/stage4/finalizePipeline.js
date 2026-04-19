@@ -47,10 +47,10 @@ function looksLikeCallbackRequest(text) {
   return /(לחזור|תחזור|תחזרו|חזרה|שיחזרו|שתחזור|שיחזור)/u.test(value);
 }
 
-function mentionsBusiness(text) {
+function mentionsMargarita(text) {
   const value = cleanText(text);
   if (!value) return false;
-  return /(טופ\s*קומרס|טופקומרס)/u.test(value);
+  return /(מרגריטה|מר גריטה|ריטה)/u.test(value);
 }
 
 function deriveFallbackSubject({ conversationLog, parsed, call }) {
@@ -62,19 +62,12 @@ function deriveFallbackSubject({ conversationLog, parsed, call }) {
   const corpus = [mergedUserText, notes, summary].filter(Boolean).join(" ");
 
   if (looksLikeCallbackRequest(corpus) || intent === "callback_request") {
+    if (mentionsMargarita(corpus)) return "בקשה שמרגריטה תחזור";
     return "בקשה לחזרה";
   }
 
-  if (intent === "leave_message") {
-    return "השארת הודעה";
-  }
-
-  if (intent === "complaint") {
-    return "פניית שירות";
-  }
-
-  if (intent === "product_interest" || intent === "price_question" || mentionsBusiness(corpus)) {
-    return "התעניינות במוצר";
+  if (intent === "reach_margarita" || mentionsMargarita(corpus)) {
+    return "בקשה לדבר עם מרגריטה";
   }
 
   return "";

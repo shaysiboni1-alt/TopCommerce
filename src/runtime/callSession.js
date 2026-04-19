@@ -2,11 +2,7 @@
 
 const { CALL_STATES } = require("./callState");
 const { createInitialSnapshot } = require("./callSnapshot");
-const {
-  recordCallEvent,
-  recordStateTransition,
-  recordSnapshotCheckpoint,
-} = require("../debug/debugLogger");
+const { recordCallEvent, recordStateTransition } = require("../debug/debugLogger");
 const { DEBUG_EVENT_CATEGORIES, DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
 
 function safeStr(v) {
@@ -74,19 +70,6 @@ class CallSession {
     }
 
     this.snapshot = snapshot;
-
-    this.timeline = {
-      call_answered_at: startedAt,
-      ws_connected_at: null,
-      provider_session_ready_at: null,
-      first_opening_sent_at: null,
-      first_audio_out_at: null,
-      first_user_audio_at: null,
-      first_user_stable_utterance_at: null,
-      first_bot_response_at: null,
-      finalization_started_at: null,
-      finalization_completed_at: null,
-    };
 
     this.refs = {
       twilioWs: null,
@@ -293,52 +276,6 @@ class CallSession {
     return this.meta;
   }
 
-  markTimeline(name, value) {
-    const key = safeStr(name);
-    if (!key || !Object.prototype.hasOwnProperty.call(this.timeline || {}, key)) {
-      return null;
-    }
-
-    if (this.timeline[key]) {
-      return this.timeline[key];
-    }
-
-    const ts = safeStr(value) || new Date().toISOString();
-    this.timeline[key] = ts;
-    this.touch();
-
-    recordSnapshotCheckpoint({
-      callSid: this.callSid,
-      label: `timeline_${key}`,
-      snapshot: {
-        timeline: {
-          ...(this.timeline || {}),
-        },
-      },
-      ts,
-    });
-
-    recordCallEvent({
-      callSid: this.callSid,
-      streamSid: this.streamSid,
-      category: DEBUG_EVENT_CATEGORIES.SESSION,
-      type: 'TIMELINE_MARKED',
-      source: 'callSession',
-      level: 'debug',
-      ts,
-      data: {
-        marker: key,
-        value: ts,
-      },
-    });
-
-    return ts;
-  }
-
-  getTimeline() {
-    return { ...(this.timeline || {}) };
-  }
-
   toJSON() {
     return {
       callSid: this.callSid || null,
@@ -347,7 +284,6 @@ class CallSession {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       meta: this.meta,
-      timeline: this.timeline,
       snapshot: this.snapshot,
       refs: {
         twilioWsAttached: !!this.refs.twilioWs,

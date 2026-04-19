@@ -25,10 +25,19 @@ function looksLikeShortDirectNameReply(text) {
   return true;
 }
 
+function isTruthy(v, fallback = false) {
+  if (v === undefined || v === null || v === "") return fallback;
+  const s = String(v).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(s)) return true;
+  if (["0", "false", "no", "n", "off"].includes(s)) return false;
+  return fallback;
+}
+
 class LeadManager {
-  constructor({ callSession, memory }) {
+  constructor({ callSession, memory, ssot }) {
     this.callSession = callSession || null;
     this.memory = memory || null;
+    this.ssot = ssot || {};
     this.nameRecovery = {
       awaitingConfirmation: false,
       pendingCandidate: "",
@@ -45,6 +54,10 @@ class LeadManager {
     } catch {
       return {};
     }
+  }
+
+  _activeStepLockEnabled() {
+    return isTruthy(this.ssot?.settings?.ACTIVE_STEP_LOCK_ENABLED, true);
   }
 
   _buildSpeakUpPrompt() {
@@ -93,11 +106,37 @@ class LeadManager {
     let stage = mem.stage || "collect_name";
     if (!mem.collectedFields?.name) {
       stage = this.nameRecovery.awaitingConfirmation ? "confirm_name" : "collect_name";
-    } else if (!mem.collectedFields?.subject && !mem.awaitingCallbackConfirmation) stage = "discover_need";
-    else if (mem.awaitingCallbackConfirmation) stage = "confirm_callback";
-    else if (!mem.collectedFields?.callback && intent === "callback_request") stage = "confirm_callback";
-    else if (mem.collectedFields?.subject && !mem.closing) stage = "ready_to_close";
+    } else if (mem.awaitingCallbackConfirmation) {
+      stage = "confirm_callback";
+    } else if (!mem.collectedFields?.callback && intent === "callback_request") {
+      stage = "confirm_callback";
+    } else if (!mem.collectedFields?.subject) {
+      stage = "discover_need";
+    } else if (mem.collectedFields?.subject && !mem.closing) {
+      stage = "ready_to_close";
+    }
     if (mem.closing) stage = "closing";
+
+    if (this._activeStepLockEnabled()) {
+      const activeStep = safeStr(mem.activeStep).toLowerCase();
+      if (!mem.collectedFields?.name || activeStep === "name") {
+        stage = this.nameRecovery.awaitingConfirmation ? "confirm_name" : "collect_name";
+        this.memory?.setActiveStep?.("name");
+      } else if ((mem.awaitingCallbackConfirmation || activeStep === "callback") && !mem.callbackConfirmed) {
+        stage = "confirm_callback";
+        this.memory?.setActiveStep?.("callback");
+      } else if ((!mem.collectedFields?.subject || activeStep === "subject") && !mem.awaitingCallbackConfirmation) {
+        stage = "discover_need";
+        this.memory?.setActiveStep?.("subject");
+      }
+    }
+
+    if (mem.closing) this.memory?.setActiveStep?.("closing");
+    else if (stage === "confirm_callback") this.memory?.setActiveStep?.("callback");
+    else if (stage === "collect_name" || stage === "confirm_name") this.memory?.setActiveStep?.("name");
+    else if (stage === "discover_need") this.memory?.setActiveStep?.("subject");
+    else if (stage === "ready_to_close") this.memory?.setActiveStep?.("general");
+
     this.memory?.setStage(stage);
     return this.snapshot();
   }
@@ -169,10 +208,7 @@ class LeadManager {
       }
     }
 
-    const allowNameRecovery = askedForName || this.nameRecovery.awaitingConfirmation;
-    const sanitized = allowNameRecovery
-      ? (sanitizeCandidate(text, { directReply: askedForName, explicit: false }) || "")
-      : "";
+    const sanitized = sanitizeCandidate(text, { directReply: askedForName, explicit: false }) || "";
     if (sanitized && hasHebrewLetters(sanitized)) {
       this.nameRecovery.attempts += 1;
       this.nameRecovery.lastRawReply = text;
@@ -186,7 +222,7 @@ class LeadManager {
       };
     }
 
-    if (allowNameRecovery) {
+    if (askedForName || this.nameRecovery.awaitingConfirmation) {
       const directReply = looksLikeShortDirectNameReply(text);
       if (directReply) {
         const sameAsPrevious = this.nameRecovery.lastRawReply && this.nameRecovery.lastRawReply === text;

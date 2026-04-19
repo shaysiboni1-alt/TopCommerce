@@ -4,12 +4,10 @@ const { CallStateStore } = require("./callStateStore");
 const { createTranscriptTurn, safeStr } = require("./runtimeContracts");
 
 class ConversationRuntime {
-  constructor({ meta, callSession, interruptionManager, turnManager, responseCoordinator }) {
+  constructor({ meta, callSession, interruptionManager }) {
     this.meta = meta || {};
     this.callSession = callSession || null;
     this.interruptionManager = interruptionManager || null;
-    this.turnManager = turnManager || null;
-    this.responseCoordinator = responseCoordinator || null;
     this.stateStore = new CallStateStore(meta || {});
     this.turns = [];
   }
@@ -53,35 +51,12 @@ class ConversationRuntime {
 
   onAssistantPlayback(active) {
     this.stateStore.markAssistantSpeaking(active);
-    if (this.callSession?.updateSnapshot) {
-      this.callSession.updateSnapshot((snap) => ({
-        ...(snap || {}),
-        runtime_state: {
-          ...(snap?.runtime_state || {}),
-          runtime_assistant_speaking: !!active,
-          runtime_turn_state: this.turnManager?.snapshot?.() || null,
-          runtime_response_state: this.responseCoordinator?.current?.() || null,
-        },
-      }));
-    }
     return this.snapshot();
   }
 
   onInterrupt(reason = "barge_in") {
     this.stateStore.markInterruption(reason);
     this.stateStore.markAssistantSpeaking(false);
-    if (this.callSession?.updateSnapshot) {
-      this.callSession.updateSnapshot((snap) => ({
-        ...(snap || {}),
-        runtime_state: {
-          ...(snap?.runtime_state || {}),
-          runtime_interruption_state: safeStr(reason) || "barge_in",
-          runtime_assistant_speaking: false,
-          runtime_turn_state: this.turnManager?.snapshot?.() || null,
-          runtime_response_state: this.responseCoordinator?.current?.() || null,
-        },
-      }));
-    }
     return this.snapshot();
   }
 
@@ -120,8 +95,6 @@ class ConversationRuntime {
     return {
       state: this.stateStore.snapshot(),
       turns: this.turns.slice(),
-      turnManager: this.turnManager?.snapshot?.() || null,
-      activeResponse: this.responseCoordinator?.current?.() || null,
     };
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "top-commerce-voicebot",
+  "name": "voicebot_blank",
   "version": "1.0.0",
   "private": true,
   "main": "src/server.js",

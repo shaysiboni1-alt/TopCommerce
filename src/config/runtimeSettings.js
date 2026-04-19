@@ -64,12 +64,6 @@ function resolveClosingKey(intentId = "other") {
     ask_contact_info: "CLOSING_info",
     leave_message: "CLOSING_other",
     price_question: "CLOSING_sales",
-    product_interest: "CLOSING_sales",
-    new_customer: "CLOSING_sales",
-    business_customer: "CLOSING_sales",
-    private_customer: "CLOSING_sales",
-    existing_customer: "CLOSING_support",
-    complaint: "CLOSING_support",
     business_opening_guidance: "CLOSING_sales",
     callback: "CLOSING_callback",
     support: "CLOSING_support",
@@ -87,22 +81,6 @@ function getClosingText(intentId = "other") {
 
 function getOpeningPhaseMaxMs() {
   return Math.max(4000, safeInt(getSettingFirst("MB_OPENING_PHASE_MAX_MS", env.MB_OPENING_PHASE_MAX_MS), 12000));
-}
-
-function getPostOpeningSilenceGraceMs() {
-  return Math.max(0, safeInt(getSettingFirst("MB_POST_OPENING_SILENCE_GRACE_MS", env.MB_POST_OPENING_SILENCE_GRACE_MS), 2500));
-}
-
-function getKnownCallerSkipNameAsk() {
-  return String(getSettingFirst("MB_KNOWN_CALLER_SKIP_NAME_ASK", env.MB_KNOWN_CALLER_SKIP_NAME_ASK)).trim().toLowerCase() !== "false";
-}
-
-function getLowConfidenceKeywordOverride() {
-  return String(getSettingFirst("MB_LOW_CONFIDENCE_KEYWORD_OVERRIDE", env.MB_LOW_CONFIDENCE_KEYWORD_OVERRIDE)).trim().toLowerCase() !== "false";
-}
-
-function getHebrewRecoveryAggressive() {
-  return String(getSettingFirst("MB_HEBREW_RECOVERY_AGGRESSIVE", env.MB_HEBREW_RECOVERY_AGGRESSIVE)).trim().toLowerCase() !== "false";
 }
 
 function getUserTranscriptFlushMs() {
@@ -140,10 +118,6 @@ module.exports = {
   businessContextLines,
   getClosingText,
   getOpeningPhaseMaxMs,
-  getPostOpeningSilenceGraceMs,
-  getKnownCallerSkipNameAsk,
-  getLowConfidenceKeywordOverride,
-  getHebrewRecoveryAggressive,
   getUserTranscriptFlushMs,
   getUserTranscriptStableGapMs,
   getUserTranscriptMinChars,

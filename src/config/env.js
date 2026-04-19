@@ -1,7 +1,5 @@
 "use strict";
 
-const { SSOT_FALLBACK_DEFAULTS } = require("./ssotFallbackDefaults");
-
 function raw(name, def = "") {
   const v = process.env[name];
   return v === undefined || v === null || v === "" ? def : v;
@@ -27,13 +25,6 @@ function parseFloatSafe(v, def) {
   return Number.isFinite(n) ? n : def;
 }
 
-function castFromDefaultType(value, def) {
-  if (typeof def === "boolean") return parseBool(value, def);
-  if (typeof def === "number" && Number.isInteger(def)) return parseIntSafe(value, def);
-  if (typeof def === "number") return parseFloatSafe(value, def);
-  return value === undefined || value === null ? def : String(value);
-}
-
 const SECRET_KEYS = new Set([
   "DATABASE_URL",
   "GEMINI_API_KEY",
@@ -49,7 +40,7 @@ const SECRET_KEYS = new Set([
 
 // Runtime/business settings are loaded primarily from Google Sheets (SSOT).
 // The values here are in-memory defaults and safe fallback values only.
-const BASE_SETTING_DEFAULTS = {
+const SETTING_DEFAULTS = {
   BUSINESS_NAME: "",
   BOT_NAME: "",
   DEFAULT_LANGUAGE: "he",
@@ -62,7 +53,7 @@ const BASE_SETTING_DEFAULTS = {
   OPENING_SCRIPT: "",
   OPENING_SCRIPT_RETURNING: "",
   NO_DATA_MESSAGE: "אין לי את המידע הזה כרגע, אבל אפשר להשאיר פנייה למשרד והם יחזרו אליכם.",
-  SUBJECT_MIN_WORDS: 1,
+  SUBJECT_MIN_WORDS: 3,
   CALLBACK_ASK_PHRASE: "כדי שנוכל לחזור אליכם, לחזור למספר שממנו התקשרתם או למספר אחר?",
   CALLBACK_RETRY_PHRASE: "לא הצלחתי לקלוט את המספר, תוכלו לומר אותו שוב בבקשה?",
   CALLBACK_CONFIRM_NEW_NUMBER_TEMPLATE: "רק לוודא, המספר הוא {DIGITS_SPOKEN}. זה נכון?",
@@ -99,7 +90,7 @@ const BASE_SETTING_DEFAULTS = {
   GEMINI_AUDIO_OUT_FORMAT: "ulaw8k",
   VOICE_NAME_OVERRIDE: "Callirrhoe",
   MB_VAD_THRESHOLD: 0.60,
-  MB_VAD_SILENCE_MS: 320,
+  MB_VAD_SILENCE_MS: 300,
   MB_VAD_PREFIX_MS: 100,
   MB_AEC_ENABLED: true,
   MB_AEC_HISTORY_MS: 900,
@@ -111,27 +102,29 @@ const BASE_SETTING_DEFAULTS = {
   MB_AEC_ECHO_FLOOR: 0.010,
   MB_INTERRUPT_RECOVERY_ENABLED: true,
   MB_INTERRUPT_RECOVERY_WINDOW_MS: 2500,
-  MB_AUDIO_NOISE_GATE_FLOOR: 320,
-  MB_BACKGROUND_NOISE_MIN_RMS: 0.012,
-  MB_BACKGROUND_NOISE_MIN_FRAMES: 2,
-  MB_BACKGROUND_NOISE_HOLD_MS: 420,
+  MB_AUDIO_NOISE_GATE_FLOOR: 280,
   MB_AUDIO_AGC_TARGET_RMS: 0.14,
   MB_AUDIO_AGC_MAX_GAIN: 4.0,
   MB_AUDIO_HIGHPASS_ALPHA: 0.97,
   MB_BARGE_IN_RMS_THRESHOLD: 0.028,
-  MB_BARGE_IN_MIN_FRAMES: 4,
+  MB_BARGE_IN_MIN_FRAMES: 2,
   MB_BARGEIN_ENABLED: true,
-  MB_BARGEIN_MIN_MS: 220,
-  MB_BARGEIN_COOLDOWN_MS: 650,
+  MB_BARGEIN_MIN_MS: 110,
+  MB_BARGEIN_COOLDOWN_MS: 130,
   MB_BARGEIN_AUDIO_DROP_MS: 35,
   MB_ENABLE_RECORDING: true,
   RECORDING_PROXY_TIMEOUT_MS: 20000,
-  SILENCE_T1_MS: 9000,
-  SILENCE_T2_MS: 15000,
-  SILENCE_T3_MS: 22000,
+  SILENCE_T1_MS: 4500,
+  SILENCE_T2_MS: 8000,
+  SILENCE_T3_MS: 12000,
   SILENCE_PROMPT_1: "",
   SILENCE_PROMPT_2: "",
   SILENCE_PROMPT_3: "",
+  SILENCE_MAX_REPROMPTS: 3,
+  SILENCE_FORCE_HANGUP_ON_MAX: false,
+  PROMPT_VARIATION_BLOCK_ENABLED: true,
+  ACTIVE_STEP_LOCK_ENABLED: true,
+  SUBJECT_REASK_MAX: 2,
   LEAD_PARSER_ENABLED: true,
   LEAD_PARSER_MODE: "postcall",
   LEAD_PARSER_MODEL: "gemini-2.0-flash",
@@ -173,29 +166,41 @@ const BASE_SETTING_DEFAULTS = {
   REPORTS_ASK_PERIOD_PHRASE: "לאיזו תקופה אתם צריכים את הדוחות?",
   REPORTS_ASK_FORWHOM_PHRASE: "עבור מי או עבור איזה עסק אתם צריכים את הדוחות?",
   MB_OPENING_PHASE_MAX_MS: 12000,
-  MB_POST_OPENING_SILENCE_GRACE_MS: 2500,
-  MB_COMPACT_SYSTEM_PROMPT_ENABLED: true,
-  MB_KNOWN_CALLER_SKIP_NAME_ASK: true,
-  MB_LOW_CONFIDENCE_KEYWORD_OVERRIDE: true,
-  MB_HEBREW_RECOVERY_AGGRESSIVE: true,
   MB_USER_TRANSCRIPT_FLUSH_MS: 420,
   MB_USER_TRANSCRIPT_STABLE_GAP_MS: 360,
-  MB_USER_TRANSCRIPT_MIN_CHARS: 3,
+  MB_USER_TRANSCRIPT_MIN_CHARS: 6,
   MB_USER_TRANSCRIPT_MIN_WORDS: 2,
-  MB_USER_TRANSCRIPT_MAX_BUFFER_MS: 1600,
-  MB_BOT_TRANSCRIPT_FLUSH_MS: 280,
+  MB_USER_TRANSCRIPT_MAX_BUFFER_MS: 1400,
+  MB_BOT_TRANSCRIPT_FLUSH_MS: 320,
   MB_BOT_TRANSCRIPT_STABLE_GAP_MS: 220,
   MB_END_CALL_DELAY_MS: 1200,
+  WHATSAPP_SUMMARY_TEMPLATE: "בהמשך לשיחתנו פניתם אלינו בעניין {topic}. הנושא הועבר ויטופל בהקדם",
+  CALLBACK_CONFIRMATION_MIN_CONFIDENCE: 0.78,
+  CALLBACK_CONFIRMATION_REASK_MAX: 2,
+  CALLBACK_CONFIRMATION_ENDPOINT_MS: 1400,
+  CALLBACK_CONFIRMATION_REQUIRE_EXPLICIT_MATCH: true,
+  NOISY_ENV_SHORT_UTTERANCE_MIN_CHARS: 4,
+  NOISY_ENV_UNCLEAR_REASK_ENABLED: true,
+  NOISY_ENV_UNKNOWN_LANG_HOLD_STATE: true,
+  BARGE_IN_MIN_RMS_CALLBACK_STATE: 0.18,
+  BARGE_IN_MIN_DURATION_MS_CALLBACK_STATE: 260,
+  ASSISTANT_FRAGMENT_MIN_LENGTH: 8,
+  ASSISTANT_FRAGMENT_BLOCK_ENABLED: true,
+  KNOWN_CALLER_NAME_ECHO_BLOCK_ENABLED: true,
+  CLOSING_BARGE_IN_MIN_RMS: 0.22,
+  CLOSING_BARGE_IN_MIN_DURATION_MS: 320,
+  CLOSING_REOPEN_ON_WEAK_SPEECH: false,
+  LONG_SILENCE_HANGUP_ENABLED: true,
+  LONG_SILENCE_HANGUP_MS: 60000,
+  LONG_SILENCE_FINAL_PROMPT: "לא נשמע שיש מענה, אז אני מנתקת את השיחה כרגע. אפשר להתקשר שוב כשנוח.",
+  OPENING_PROTECTION_STRICT: true,
+  OPENING_BARGE_IN_MIN_RMS: 0.06,
+  OPENING_BARGE_IN_MIN_DURATION_MS: 260,
+  OPENING_BARGE_IN_MIN_FRAMES: 4,
+  NOISE_STATE_CHANGE_BLOCK_ENABLED: true,
+  BARGE_IN_REQUIRE_SPEECH_LIKELIHOOD: true,
   PORT: 10000,
 };
-
-const SETTING_DEFAULTS = { ...BASE_SETTING_DEFAULTS };
-
-for (const [key, value] of Object.entries(SSOT_FALLBACK_DEFAULTS || {})) {
-  if (key === "PORT") continue;
-  if (!Object.prototype.hasOwnProperty.call(BASE_SETTING_DEFAULTS, key)) continue;
-  SETTING_DEFAULTS[key] = castFromDefaultType(value, BASE_SETTING_DEFAULTS[key]);
-}
 
 function castSettingValue(key, value) {
   const def = SETTING_DEFAULTS[key];

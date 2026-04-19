@@ -20,33 +20,19 @@ const STOPWORDS_HE = new Set([
   "כן","לא","אוקיי","אוקי","טוב","בסדר","סבבה","אה","אממ","הממ","רגע","שלום","היי","הלו",
   "מה","מי","אני","קוראים","לי","שמי","זה","כאן","מדבר","מדברת","איתך","אתך","נעים",
   "אישה","בת","גברת","אדוני","רוצה","רציתי","צריך","צריכה","צריכים","צריכות","מחפש","מחפשת",
-  "משרד","מיטל","טופ","קומרס","דוח","דוחות","אישור","אישורים","מסמך","מסמכים","שירות","פעילות"
+  "משרד","מרגריטה","ריטה","דוח","דוחות","אישור","אישורים","מסמך","מסמכים","שירות","פעילות"
 ]);
 
 const INVALID_SINGLE_TOKEN_HE = new Set([
   "אני","אישה","בת","גבר","ילד","ילדה","גברת","אדוני","שלום","הלו","רגע","כן","לא",
   "טוב","בסדר","רוצה","רציתי","צריך","צריכה","צריכים","צריכות","מבקש","מבקשת","מחפש","מחפשת",
-  "דוח","דוחות","אישור","אישורים","מסמך","מסמכים","משרד","מיטל","טופ","קומרס","מייל","טלפון",
+  "דוח","דוחות","אישור","אישורים","מסמך","מסמכים","משרד","מרגריטה","ריטה","מייל","טלפון",
   "שעות","פעילות","עזרה","בעיה","חזרה","מבטא","קול","בשם"
 ]);
 
-
-const CLASSIFICATION_PHRASES_HE = [
-  /(?:^|\b)לקוחות?\s+חדשי(?:ם)?(?:\b|$)/u,
-  /(?:^|\b)לקוחות?\s+קיימי(?:ם)?(?:\b|$)/u,
-  /(?:^|\b)לקוח(?:ות)?\s+עסקי(?:ת|ים|ות)?(?:\b|$)/u,
-  /(?:^|\b)לקוח(?:ות)?\s+פרטי(?:ת|ים|ות)?(?:\b|$)/u,
-];
-
-function looksLikeClassificationPhrase(text) {
-  const t = collapseHebrewSpacing(String(text || ""));
-  if (!t) return false;
-  return CLASSIFICATION_PHRASES_HE.some((re) => re.test(t));
-}
-
 const INVALID_ANY_TOKEN_HE = new Set([
   "אני","היא","הוא","אנחנו","אתם","אתן","בת","אישה","גברת","אדוני","צריך","צריכה",
-  "צריכים","צריכות","רוצה","רציתי","מחפש","מחפשת","שלום","הלו","כן","לא","משרד","מיטל","טופ","קומרס","לקוח","לקוחות","עסקי","פרטי","חדשים","חדשי","קיימים","קיים","לקוח","לקוחות","עסקי","עסקי.","פרטי","חדשים","חדשי","קיימים","קיים"
+  "צריכים","צריכות","רוצה","רציתי","מחפש","מחפשת","שלום","הלו","כן","לא","משרד","מרגריטה"
 ]);
 
 function collapseHebrewSpacing(s) {
@@ -100,9 +86,6 @@ function sanitizeCandidate(raw, opts = {}) {
 
   let t = stripPunct(raw);
   if (!t) return null;
-  if (looksLikeClassificationPhrase(t)) return null;
-  if (/^(?:אני\s+)?(?:לקוח(?:ות)?|לקוחות?)\b/u.test(t)) return null;
-  if (/^(?:עסקי(?:ת|ים|ות)?|פרטי(?:ת|ים|ות)?|חדשי(?:ם)?|קיימי(?:ם)?)$/u.test(t)) return null;
 
   t = t.replace(/^(שלום|היי|הלו)\s+/u, "");
   t = t.replace(/^(אני|שמי|קוראים לי)\s+/u, "");
@@ -158,7 +141,8 @@ function extractCallerName({ userText, lastBotUtterance }) {
 
   const patterns = [
     { re: /(?:^|\b)שלום\s+אני\s+(.+)$/iu, reason: "explicit_shalom_ani" },
-        { re: /(?:^|\b)קוראים\s+לי\s+(.+)$/iu, reason: "explicit_korim_li" },
+    { re: /(?:^|\b)אני\s+(.+)$/iu, reason: "explicit_ani" },
+    { re: /(?:^|\b)קוראים\s+לי\s+(.+)$/iu, reason: "explicit_korim_li" },
     { re: /(?:^|\b)שמי\s+(.+)$/iu, reason: "explicit_shmi" },
     { re: /(?:^|\b)השם\s+שלי\s+זה\s+(.+)$/iu, reason: "explicit_hashem_sheli_ze" },
     { re: /(?:^|\b)השם\s+שלי\s+(.+)$/iu, reason: "explicit_hashem_sheli" },
@@ -170,7 +154,6 @@ function extractCallerName({ userText, lastBotUtterance }) {
   for (const p of patterns) {
     const m = raw.match(p.re);
     if (!m || !m[1]) continue;
-    if (looksLikeClassificationPhrase(m[1])) continue;
     const cand = sanitizeCandidate(m[1], { explicit: true });
     if (cand) return { name: cand, reason: p.reason };
   }

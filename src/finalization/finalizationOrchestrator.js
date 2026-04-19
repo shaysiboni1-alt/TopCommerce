@@ -41,7 +41,7 @@ async function executeFinalization({ snapshot, settings }) {
     if (settings.WHATSAPP_SUMMARY_WEBHOOK_ENABLED && settings.WHATSAPP_SUMMARY_WEBHOOK_URL) {
       webhookResults.whatsapp = await maybeDeliver(
         settings.WHATSAPP_SUMMARY_WEBHOOK_URL,
-        buildWhatsAppPayload(snapshot, decision),
+        buildWhatsAppPayload(snapshot, decision, settings),
         "WHATSAPP_SUMMARY",
         callSid
       );

@@ -14,7 +14,8 @@ const { runtimeSettingsRouter } = require("./routes/runtimeSettings");
 const { debugCallsRouter } = require("./routes/debugCalls");
 
 const { loadSSOT, getSSOT } = require("./ssot/ssotClient");
-const { warmCompiledPromptBundle } = require("./realtime/compiledPromptBundle");
+const { warmOpeningCache } = require("./logic/openingBuilder");
+const { buildSystemInstructionFromSSOT } = require("./realtime/systemInstructionBuilder");
 const { installTwilioMediaWs } = require("./ws/twilioMediaWs");
 
 const { ensureCallerMemorySchema } = require("./memory/callerMemory");
@@ -98,16 +99,17 @@ const server = app.listen(env.PORT, "0.0.0.0", async () => {
     await loadSSOT(false);
     const ssot = getSSOT();
     try {
-      warmCompiledPromptBundle({
+      warmOpeningCache({
         ssot,
-        runtimeMeta: {
-          caller_name: "",
-          display_name: "",
-          language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
-          caller_withheld: false,
-        },
+        callerName: "",
         isReturning: false,
         timeZone: env.TIME_ZONE,
+      });
+      buildSystemInstructionFromSSOT(ssot, {
+        caller_name: "",
+        display_name: "",
+        language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
+        caller_withheld: false,
       });
       logger.info("Opening/system warmup ready");
     } catch (warmErr) {

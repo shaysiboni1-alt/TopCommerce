@@ -104,7 +104,7 @@ function deriveDecision(snapshot, settings = {}) {
   const hasPhone = Boolean(callbackChoice.value);
   const meetsTwilioRule = twilioStatus === "completed";
   const meetsThresholds = durationSeconds >= minDuration && meaningfulTurns >= minTurns;
-  const subjectOkay = wordCount(subject) >= minSubjectWords || hasMeaningfulText(notes);
+  const subjectOkay = !subject || wordCount(subject) >= minSubjectWords || hasMeaningfulText(notes);
 
   const canComplete = meetsTwilioRule && hasName && hasPhone && meetsThresholds && subjectOkay;
   if (canComplete) {
@@ -112,7 +112,7 @@ function deriveDecision(snapshot, settings = {}) {
       ...base,
       event_type: "COMPLETE",
       business_status: "COMPLETE",
-      reason: "complete_full_lead",
+      reason: subject ? "complete_full_lead" : "complete_without_subject",
       next_action: "return_call",
       priority: subject ? "normal" : "low",
     };
@@ -120,7 +120,7 @@ function deriveDecision(snapshot, settings = {}) {
 
   let abandonedReason = "ended_before_complete";
   if (!meetsTwilioRule) abandonedReason = twilioStatus || "ended_before_complete";
-  else if (!hasName) abandonedReason = hadMeaningfulInteraction ? "ended_before_complete" : "missing_name";
+  else if (!hasName) abandonedReason = "missing_name";
   else if (!hasPhone) abandonedReason = withholdCallerId ? "missing_explicit_callback_number" : "missing_callback_number";
   else if (!meetsThresholds) abandonedReason = meaningfulTurns < minTurns ? "insufficient_user_turns" : "insufficient_duration";
   else if (!subjectOkay) abandonedReason = "subject_too_short";

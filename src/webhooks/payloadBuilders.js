@@ -4,6 +4,18 @@ function safe(v) {
   return v === undefined || v === null ? null : v;
 }
 
+function safeStr(v) {
+  return v === undefined || v === null ? "" : String(v).trim();
+}
+
+function applyTemplate(template, vars = {}) {
+  const s = safeStr(template);
+  return s.replace(/\{([A-Za-z0-9_]+)\}/g, (_, rawKey) => {
+    const key = String(rawKey || "");
+    return vars[key] ?? vars[key.toUpperCase()] ?? vars[key.toLowerCase()] ?? "";
+  }).replace(/\s{2,}/g, " ").trim();
+}
+
 function buildCorePayload(snapshot, decision, eventTypeOverride) {
   const call = snapshot?.call || {};
   return {
@@ -70,11 +82,18 @@ function buildAbandonedPayload(snapshot, decision) {
   };
 }
 
-function buildWhatsAppPayload(snapshot, decision) {
+function buildWhatsAppPayload(snapshot, decision, settings = {}) {
+  const topic = safeStr(decision.subject || decision.intent || decision.summary || "פנייה כללית");
+  const template = safeStr(settings.WHATSAPP_SUMMARY_TEMPLATE);
+  const whatsappSummaryText = template
+    ? applyTemplate(template, { topic, TOPIC: topic })
+    : null;
+
   return {
     ...buildCorePayload(snapshot, decision, "WHATSAPP_SUMMARY"),
     next_action: decision.next_action || null,
     priority: decision.priority || null,
+    whatsapp_summary_text: whatsappSummaryText,
   };
 }
 

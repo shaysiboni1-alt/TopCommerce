@@ -3,229 +3,113 @@
 const { safeStr } = require("./sessionUtils");
 const { getPromptStack } = require("../ssot/ssotAccessors");
 
-function approvedRows(rows, approvedKeyCandidates = ["approved", "Approved", "סטטוס", "status"]) {
-  return (Array.isArray(rows) ? rows : []).filter((row) => {
-    const raw = approvedKeyCandidates
-      .map((key) => safeStr(row?.[key]))
-      .find(Boolean)
-      .toLowerCase();
-    if (!raw) return true;
-    return ["true", "1", "yes", "מאושר"].includes(raw);
+function buildSettingsContext(settings) {
+  const keys = Object.keys(settings || {}).sort();
+  return keys.map((k) => `${k}: ${safeStr(settings[k])}`).join("\n").trim();
+}
+
+function buildSuggestionsContext(rows, title) {
+  const arr = Array.isArray(rows) ? rows : [];
+  if (!arr.length) return "";
+  return `${title}:\n` + arr.map((row) => JSON.stringify(row)).join("\n");
+}
+
+function buildIntentsContext(intents) {
+  const rows = Array.isArray(intents) ? intents.slice() : [];
+  rows.sort((a, b) => {
+    const pa = Number(a?.priority ?? 0);
+    const pb = Number(b?.priority ?? 0);
+    if (pb !== pa) return pb - pa;
+    return String(a?.intent_id ?? "").localeCompare(String(a?.intent_id ?? ""));
   });
-}
-
-function buildApprovedScripts(ssot) {
-  const rows = approvedRows(ssot?.script_suggestions);
-  const out = [];
-  for (const row of rows) {
-    const key = safeStr(row?.script_key);
-    const text = safeStr(row?.suggested_text || row?.text || row?.content);
-    if (!key || !text) continue;
-    out.push(`- ${key}: ${text}`);
-  }
-  return out.join("\n").trim();
-}
-
-function buildApprovedKbFacts(ssot) {
-  const rows = approvedRows(ssot?.kb_suggestions).slice(0, 16);
-  const out = [];
-  for (const row of rows) {
-    const q = safeStr(row?.question);
-    const a = safeStr(row?.suggested_answer || row?.answer);
-    if (!q || !a) continue;
-    out.push(`- Q: ${q} | A: ${a}`);
-  }
-  return out.join("\n").trim();
-}
-
-function buildSupportedIntentSummary(ssot) {
-  const rows = Array.isArray(ssot?.intents) ? ssot.intents.slice() : [];
-  rows.sort((a, b) => Number(b?.priority || 0) - Number(a?.priority || 0));
   return rows
-    .map((it) => {
-      const id = safeStr(it?.intent_id);
-      const type = safeStr(it?.intent_type || "other");
-      if (!id) return "";
-      return `- ${id} (${type})`;
-    })
-    .filter(Boolean)
+    .map((it) => `- ${safeStr(it.intent_id)} | type=${safeStr(it.intent_type)} | priority=${Number(it.priority ?? 0) || 0} | triggers_he=${safeStr(it.triggers_he)} | triggers_en=${safeStr(it.triggers_en)} | triggers_ru=${safeStr(it.triggers_ru)}`)
     .join("\n")
     .trim();
 }
 
-function limitText(value, maxLen = 420) {
-  const text = safeStr(value).replace(/\s+/g, " ").trim();
-  if (!text || text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen).trim()}…`;
-}
-
-function buildCompactApprovedScripts(ssot) {
-  const rows = approvedRows(ssot?.script_suggestions);
-  const preferred = new Set([
-    "ASK_EXISTING_OR_NEW",
-    "ASK_EXISTING_NEED",
-    "ASK_NEW_SEGMENT",
-    "ASK_NAME",
-    "ASK_PRODUCT_INTEREST",
-    "ASK_CALLBACK_CONFIRM",
-    "CALLBACK_ALT_NUMBER_PHRASE",
-    "ERROR_REPEAT",
-    "CLOSING",
-  ]);
-  const out = [];
-  for (const row of rows) {
-    const key = safeStr(row?.script_key);
-    if (!key || !preferred.has(key)) continue;
-    const text = safeStr(row?.suggested_text || row?.text || row?.content);
-    if (!text) continue;
-    out.push(`- ${key}: ${limitText(text, 100)}`);
-    if (out.length >= 8) break;
-  }
-  return out.join("\n").trim();
-}
-
-function normalizeRuntimeMeta(runtimeMeta, settings) {
-  return {
-    caller_name: safeStr(runtimeMeta?.caller_name) || safeStr(runtimeMeta?.display_name) || "",
-    display_name: safeStr(runtimeMeta?.display_name) || safeStr(runtimeMeta?.caller_name) || "",
-    language_locked: safeStr(runtimeMeta?.language_locked) || safeStr(settings?.DEFAULT_LANGUAGE) || "he",
-    caller_withheld: !!runtimeMeta?.caller_withheld,
-    caller: safeStr(runtimeMeta?.caller),
-    called: safeStr(runtimeMeta?.called),
-    source: safeStr(runtimeMeta?.source),
-    opening_played:
-      runtimeMeta?.opening_played === undefined || runtimeMeta?.opening_played === null
-        ? ""
-        : safeStr(runtimeMeta?.opening_played),
-  };
-}
-
-function buildBaseInstructionFromSSOT(ssot, runtimeMeta) {
+function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
   const settings = ssot?.settings || {};
-  const compactMode = String(settings.MB_COMPACT_SYSTEM_PROMPT_ENABLED ?? "true").trim().toLowerCase() !== "false";
   const promptStack = { ...getPromptStack(), ...(ssot?.prompts || {}) };
-  const meta = normalizeRuntimeMeta(runtimeMeta, settings);
-  const defaultLang = meta.language_locked || "he";
+  const intents = ssot?.intents || [];
+  const defaultLang = safeStr(runtimeMeta?.language_locked) || safeStr(settings.DEFAULT_LANGUAGE) || "he";
+  const callerName = safeStr(runtimeMeta?.caller_name) || safeStr(runtimeMeta?.display_name) || "";
+  const callerWithheld = !!runtimeMeta?.caller_withheld;
   const sections = [];
 
   sections.push([
     "IDENTITY (NON-NEGOTIABLE):",
-    `- You are ${safeStr(settings.BOT_NAME) || "the business phone representative"} for ${safeStr(settings.BUSINESS_NAME) || "the business"}.`,
+    "- You are the business phone assistant defined by SETTINGS and PROMPTS.",
     "- Never identify as an AI, model, assistant model, or LLM.",
     "- Speak briefly, naturally, and only as a customer-facing phone representative.",
+    "- NEVER output analysis, internal planning, reasoning, markdown, bullets, JSON, stage labels, or notes.",
+    "- NEVER say internal IDs, intent labels, or technical statuses aloud.",
     "- Output ONLY the final customer-facing sentence(s) to be spoken aloud.",
-    "- Never say internal labels, reasoning, JSON, bullets, or technical statuses.",
   ].join("\n"));
 
   sections.push([
     "LANGUAGE POLICY (HARD RULE):",
     `- locked_language=${defaultLang}`,
     "- Start and stay in Hebrew by default.",
-    "- Switch language only if the caller explicitly asks to switch or clearly speaks another supported language for multiple turns.",
+    "- Do NOT switch language because of accent, pronunciation, or a foreign-sounding name.",
+    "- Switch language only if the caller explicitly asks to switch, or clearly speaks in a supported language for multiple turns.",
     "- If in doubt, remain in Hebrew.",
   ].join("\n"));
 
   sections.push([
     "DIALOG POLICY (HARD RULE):",
     "- Ask only ONE question at a time.",
+    "- Never bundle multiple data-collection questions into one turn.",
+    "- The first priority is caller name capture unless a reliable known caller name already exists.",
     "- Prefer short, focused follow-up questions.",
     "- If the caller corrects you, apologize briefly, align to the correction, and continue naturally.",
     "- If the call is only for information, answer briefly and do not force lead capture.",
-    "- Use approved SSOT scripts and approved KB only; do not invent unsupported facts.",
+    "- Any customer-specific flow or discovery path must come from PROMPTS/INTENTS/INTENT_SUGGESTIONS/SCRIPT_SUGGESTIONS/KB_SUGGESTIONS, not from hidden business rules.",
   ].join("\n"));
 
-  if (compactMode) {
-    const compactBusiness = limitText([
-      safeStr(settings.BUSINESS_DESCRIPTION),
-      safeStr(settings.BUSINESS_SERVICES_LIST),
-      safeStr(settings.BUSINESS_SPECIAL_NOTES),
-    ].filter(Boolean).join(" ").trim(), 420);
-
-    const compactFlow = [
-      "FLOW:",
-      "- Returning/known caller: ask briefly what they need, do not ask name again if already known, then confirm callback number.",
-      "- New caller: classify new/existing, then ask business/private, then name only if still missing, then product/need, then callback number.",
-      "- If the caller asks for info, answer briefly from approved knowledge and then continue lead capture politely.",
-      "- If not understood, ask one short clarification question.",
-    ].join("\n");
-
-    if (compactBusiness) sections.push(`BUSINESS SNAPSHOT:\n${compactBusiness}`);
-    sections.push(compactFlow);
-
-    const approvedScripts = buildApprovedScripts(ssot);
-    if (approvedScripts) sections.push(`APPROVED_SCRIPT_SNIPPETS:\n${approvedScripts}`);
-
-    const intentSummary = buildSupportedIntentSummary(ssot);
-    if (intentSummary) sections.push(`SUPPORTED_INTENTS:\n${intentSummary}`);
-  } else {
-    ["MASTER_PROMPT", "GUARDRAILS_PROMPT", "KB_PROMPT", "LEAD_CAPTURE_PROMPT", "INTENT_ROUTER_PROMPT"].forEach((key) => {
-      const content = safeStr(promptStack[key]);
-      if (content) sections.push(`${key}:\n${content}`);
-    });
-
-    const approvedScripts = buildApprovedScripts(ssot);
-    if (approvedScripts) sections.push(`APPROVED_SCRIPT_SNIPPETS:\n${approvedScripts}`);
-
-    const approvedKbFacts = buildApprovedKbFacts(ssot);
-    if (approvedKbFacts) sections.push(`APPROVED_KB_FACTS:\n${approvedKbFacts}`);
-
-    const intentSummary = buildSupportedIntentSummary(ssot);
-    if (intentSummary) sections.push(`SUPPORTED_INTENTS:\n${intentSummary}`);
-  }
-
-  sections.push([
-    "SSOT GOVERNANCE (HARD RULE):",
-    "- Use SETTINGS, PROMPTS, INTENTS, INTENT_SUGGESTIONS, SCRIPT_SUGGESTIONS, and KB_SUGGESTIONS as the source of truth.",
-    "- When an approved script exists for the current flow step, prefer it before improvising.",
-    "- Do not ask for the caller name again when caller memory already provides a reliable name unless the caller explicitly corrects it.",
-  ].join("\n"));
-
-  return sections.filter(Boolean).join("\n\n---\n\n").trim();
-}
-
-function buildDeltaInstruction(runtimeMeta, settings) {
-  const meta = normalizeRuntimeMeta(runtimeMeta, settings);
-  const sections = [];
-
-  if (meta.caller_name) {
+  if (callerName) {
     sections.push([
       "CALLER MEMORY POLICY:",
-      `- Known caller name: \"${meta.caller_name}\"`,
+      `- Known caller name: \"${callerName}\"`,
       "- Treat it as correct unless the caller explicitly corrects it.",
-      "- The caller name is already collected. NEVER ask for the name again unless the caller corrects it or asks to replace it.",
+      "- Do not ask for the caller name again if it is already known.",
     ].join("\n"));
   }
 
-  if (meta.caller_withheld) {
+  if (callerWithheld) {
     sections.push([
       "WITHHELD NUMBER POLICY:",
       "- The caller number is withheld/private.",
-      "- If the caller asks for a callback, you MUST collect a callback number explicitly.",
-      "- Do not promise a return call to the identified number because there is no usable caller ID.",
+      "- If the caller leaves a request or asks for a callback, you MUST collect a callback number explicitly.",
+      "- Do not say you will return to the identified number because there is no usable caller ID.",
     ].join("\n"));
   }
 
-  const runtimeLines = [
-    "RUNTIME CONTEXT:",
-    `- caller=${meta.caller || "unknown"}`,
-    `- called=${meta.called || "unknown"}`,
-    `- source=${meta.source || "unknown"}`,
-  ];
-  if (meta.opening_played !== "") runtimeLines.push(`- opening_played=${meta.opening_played}`);
-  sections.push(runtimeLines.join("\n"));
+  ["MASTER_PROMPT", "GUARDRAILS_PROMPT", "KB_PROMPT", "LEAD_CAPTURE_PROMPT", "INTENT_ROUTER_PROMPT"].forEach((key) => {
+    if (promptStack[key]) sections.push(`${key}:\n${safeStr(promptStack[key])}`);
+  });
+
+  const settingsContext = buildSettingsContext(settings);
+  if (settingsContext) sections.push(`SETTINGS_CONTEXT:\n${settingsContext}`);
+
+  const intentsContext = buildIntentsContext(intents);
+  if (intentsContext) sections.push(`INTENTS_TABLE:\n${intentsContext}`);
+
+  const intentSuggestionsContext = buildSuggestionsContext(ssot?.intent_suggestions, "INTENT_SUGGESTIONS_TABLE");
+  if (intentSuggestionsContext) sections.push(intentSuggestionsContext);
+  const scriptSuggestionsContext = buildSuggestionsContext(ssot?.script_suggestions, "SCRIPT_SUGGESTIONS_TABLE");
+  if (scriptSuggestionsContext) sections.push(scriptSuggestionsContext);
+  const kbSuggestionsContext = buildSuggestionsContext(ssot?.kb_suggestions, "KB_SUGGESTIONS_TABLE");
+  if (kbSuggestionsContext) sections.push(kbSuggestionsContext);
+
+  sections.push([
+    "SSOT GOVERNANCE (HARD RULE):",
+    "- Use the SSOT tables as the source of truth for customer-facing conversation behavior.",
+    "- Do not invent customer-specific flows that are not grounded in SETTINGS, PROMPTS, INTENTS, INTENT_SUGGESTIONS, SCRIPT_SUGGESTIONS, or KB_SUGGESTIONS.",
+    "- When a matching intent or suggestion exists in SSOT, follow it before improvising.",
+  ].join("\n"));
 
   return sections.filter(Boolean).join("\n\n---\n\n").trim();
 }
 
-function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
-  const settings = ssot?.settings || {};
-  const baseInstruction = buildBaseInstructionFromSSOT(ssot, runtimeMeta);
-  const deltaInstruction = buildDeltaInstruction(runtimeMeta, settings);
-  return [baseInstruction, deltaInstruction].filter(Boolean).join("\n\n---\n\n").trim();
-}
-
-module.exports = {
-  buildBaseInstructionFromSSOT,
-  buildDeltaInstruction,
-  buildSystemInstructionFromSSOT,
-};
+module.exports = { buildSystemInstructionFromSSOT };

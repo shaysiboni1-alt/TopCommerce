@@ -4,14 +4,15 @@
 const WebSocket = require("ws");
 const { logger } = require("../utils/logger");
 const { env } = require("../config/env");
-const { createGeminiSessionAdapter } = require("../provider/geminiSessionAdapter");
+const { GeminiLiveSession } = require("../vendor/geminiLiveSession");
 const { CallSession } = require("../runtime/callSession");
 const { InterruptionManager } = require("../runtime/interruptionManager");
 const { startCallRecording, hangupCall } = require("../utils/twilioRecordings");
 const { setRecordingForCall, markRecordingStartRequested } = require("../utils/recordingRegistry");
 const { getSSOT } = require("../ssot/ssotClient");
 const { getCallerProfile } = require("../memory/callerMemory");
-const { warmCompiledPromptBundle } = require("../realtime/compiledPromptBundle");
+const { warmOpeningCache } = require("../logic/openingBuilder");
+const { buildSystemInstructionFromSSOT } = require("../realtime/systemInstructionBuilder");
 const { ulaw8kB64ToPcm16kBuffer } = require("../vendor/twilioGeminiAudio");
 const { preprocessInt16, rmsInt16 } = require("../runtime/voice/audioPreprocessor");
 const { TelephonyAec } = require("../runtime/voice/telephonyAec");
@@ -38,9 +39,19 @@ function installTwilioMediaWs(server) {
     let callSession = null;
     let stopped = false;
 
+    function stopGeminiOnce(reason) {
+      if (stopped || !gemini) return;
+      stopped = true;
+      try {
+        gemini.endInput();
+      } catch {}
+      try {
+        gemini.stop();
+      } catch {}
+      logger.info("GEMINI_STOP_ONCE", { streamSid, callSid, reason });
+    }
+
     const preState = { prevX: 0, prevY: 0 };
-    let voiceActiveFrames = 0;
-    let lastVoiceAt = 0;
     const aec = new TelephonyAec({
       sampleRate: 16000,
       historyMs: env.MB_AEC_HISTORY_MS,
@@ -57,8 +68,6 @@ function installTwilioMediaWs(server) {
       minFrames: env.MB_BARGE_IN_MIN_FRAMES,
       cooldownMs: 600,
       onInterrupt: ({ rms, threshold, minFrames }) => {
-        if (!gemini?.shouldAllowBargeIn?.({ rms, threshold, minFrames })) return;
-        if (!gemini?._assistantPlaybackActive) return;
         if (gemini?.handleInterruption) gemini.handleInterruption("local_speech_barge_in");
         sendClear();
         logger.info("BARGE_IN_TRIGGERED", { streamSid, callSid, rms });
@@ -98,11 +107,7 @@ function installTwilioMediaWs(server) {
 
       try {
         const outboundPcm = ulaw8kB64ToPcm16kBuffer(ulaw8kB64);
-        const outboundSamples = new Int16Array(
-          outboundPcm.buffer,
-          outboundPcm.byteOffset,
-          outboundPcm.byteLength / 2
-        );
+        const outboundSamples = new Int16Array(outboundPcm.buffer, outboundPcm.byteOffset, outboundPcm.byteLength / 2);
         if (env.MB_AEC_ENABLED) aec.pushReference(outboundSamples);
       } catch {}
 
@@ -139,7 +144,6 @@ function installTwilioMediaWs(server) {
         callSid = msg?.start?.callSid || null;
         customParameters = msg?.start?.customParameters || {};
         logger.info("Twilio stream start", { streamSid, callSid, customParameters });
-        callSession?.markTimeline?.("ws_connected_at");
 
         recordCallEvent({
           callSid,
@@ -186,11 +190,7 @@ function installTwilioMediaWs(server) {
             conversationLog: Array.isArray(snap?.conversationLog) ? snap.conversationLog : [],
             lead: snap?.lead || {},
           }));
-          logger.info("Blocked caller matched", {
-            callSid,
-            caller: customParameters?.caller || null,
-            normalized: blocked.normalized,
-          });
+          logger.info("Blocked caller matched", { callSid, caller: customParameters?.caller || null, normalized: blocked.normalized });
 
           recordCallEvent({
             callSid,
@@ -207,9 +207,7 @@ function installTwilioMediaWs(server) {
           });
 
           await hangupCall(callSid, logger).catch(() => false);
-          try {
-            twilioWs.close();
-          } catch {}
+          try { twilioWs.close(); } catch {}
           return;
         }
 
@@ -218,23 +216,13 @@ function installTwilioMediaWs(server) {
             .then((r) => {
               if (r?.ok && r?.recordingSid) {
                 setRecordingForCall(callSid, { recordingSid: r.recordingSid });
-                logger.info("Recording started + stored in registry", {
-                  callSid,
-                  recordingSid: r.recordingSid,
-                });
+                logger.info("Recording started + stored in registry", { callSid, recordingSid: r.recordingSid });
               } else {
-                logger.info("Recording start skipped/failed (best-effort)", {
-                  callSid,
-                  ok: r?.ok,
-                  reason: r?.reason || null,
-                });
+                logger.info("Recording start skipped/failed (best-effort)", { callSid, ok: r?.ok, reason: r?.reason || null });
               }
             })
             .catch((e) => {
-              logger.warn("Failed to start call recording", {
-                callSid,
-                err: e?.message || String(e),
-              });
+              logger.warn("Failed to start call recording", { callSid, err: e?.message || String(e) });
             });
         }
 
@@ -255,43 +243,29 @@ function installTwilioMediaWs(server) {
         try {
           const callerProfile = meta.caller_profile || null;
           const callerName = String(callerProfile?.display_name || "").trim();
-          const compiledBundle = await Promise.resolve(
-            warmCompiledPromptBundle({
+          const openingData = await Promise.resolve(
+            warmOpeningCache({
               ssot,
-              runtimeMeta: {
-                caller_name: callerName,
-                display_name: callerName,
-                language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
-                caller_withheld:
-                  !meta.caller ||
-                  String(meta.caller || "").trim().toLowerCase() === "anonymous",
-                caller: meta.caller || "",
-                called: meta.called || "",
-                source: meta.source || "",
-                opening_played:
-                  customParameters?.opening_played === undefined ||
-                  customParameters?.opening_played === null
-                    ? ""
-                    : String(customParameters.opening_played).trim(),
-              },
+              callerName,
               isReturning: !!callerProfile,
               timeZone: env.TIME_ZONE,
             })
           );
-
-          const prebuiltOpeningText = String(compiledBundle?.opening || "").trim();
+          const prebuiltOpeningText = String(openingData?.opening || openingData?.text || "").trim();
           if (prebuiltOpeningText) {
             meta.prebuilt_opening_text = prebuiltOpeningText;
-            meta.prebuilt_opening_cache_hit = !!compiledBundle?.opening_cache_hit;
+            meta.prebuilt_opening_cache_hit = !!openingData?.cache_hit;
           }
 
-          const prebuiltSystemInstruction = String(
-            compiledBundle?.system_instruction || ""
-          ).trim();
+          const prebuiltSystemInstruction = buildSystemInstructionFromSSOT(ssot, {
+            caller_name: callerName,
+            display_name: callerName,
+            language_locked: String(env.MB_DEFAULT_LANGUAGE || "he").trim() || "he",
+            caller_withheld: !meta.caller || String(meta.caller || "").trim().toLowerCase() === "anonymous",
+          });
           if (prebuiltSystemInstruction) {
             meta.prebuilt_system_instruction = prebuiltSystemInstruction;
           }
-          meta.prebuilt_prompt_bundle_cache_hit = !!compiledBundle?.bundle_cache_hit;
         } catch (e) {
           logger.warn("Failed to prebuild opening/system instruction", {
             callSid,
@@ -301,44 +275,16 @@ function installTwilioMediaWs(server) {
         }
 
         callSession = new CallSession(meta);
-        callSession?.markTimeline?.(
-          "call_answered_at",
-          meta.started_at || new Date().toISOString()
-        );
-        callSession?.markTimeline?.("ws_connected_at");
         if (callSession?.attachTwilioWs) callSession.attachTwilioWs(twilioWs);
 
-        gemini = createGeminiSessionAdapter({
+        gemini = new GeminiLiveSession({
           meta,
           ssot,
           callSession,
           onGeminiAudioUlaw8kBase64: (ulawB64) => sendToTwilioMedia(ulawB64),
           onGeminiText: (t) => logger.debug("Gemini text", { streamSid, callSid, t }),
-          onTranscript: ({
-            who,
-            text,
-            raw_text,
-            normalized_text,
-            recovered_text,
-            final_text,
-            stage_order,
-            stage_texts,
-            stages,
-          }) => {
-            logger.info(`TRANSCRIPT ${who}`, {
-              streamSid,
-              callSid,
-              text,
-              raw_text: raw_text || text || "",
-              normalized_text: normalized_text || text || "",
-              recovered_text: recovered_text || normalized_text || text || "",
-              final_text: final_text || text || "",
-              stage_order: Array.isArray(stage_order) && stage_order.length
-                ? stage_order
-                : ["raw", "normalized", "recovered", "final"],
-              stage_texts: stage_texts || null,
-              stages: stages || null,
-            });
+          onTranscript: ({ who, text }) => {
+            logger.info(`TRANSCRIPT ${who}`, { streamSid, callSid, text });
           },
         });
 
@@ -353,18 +299,13 @@ function installTwilioMediaWs(server) {
 
         try {
           const pcmBuf = ulaw8kB64ToPcm16kBuffer(b64);
-          let samples = new Int16Array(
-            pcmBuf.buffer,
-            pcmBuf.byteOffset,
-            pcmBuf.byteLength / 2
-          );
+          let samples = new Int16Array(pcmBuf.buffer, pcmBuf.byteOffset, pcmBuf.byteLength / 2);
 
           if (env.MB_AEC_ENABLED) {
             const aecResult = aec.processNearEnd(samples);
             samples = aecResult.samples;
           }
 
-          callSession?.markTimeline?.("first_user_audio_at");
           if (gemini?.noteInboundUserAudio) gemini.noteInboundUserAudio();
           const preprocessOptions = gemini?.getAudioPreprocessOptions
             ? gemini.getAudioPreprocessOptions()
@@ -372,44 +313,17 @@ function installTwilioMediaWs(server) {
 
           const processed = preprocessInt16(samples, preState, preprocessOptions);
           const currentRms = processed.metrics.outputRms || rmsInt16(processed.samples);
-          const minVoiceRms = Number(process.env.MB_BACKGROUND_NOISE_MIN_RMS || 0.012);
-          const voiceFramesNeeded = Math.max(1, Number(process.env.MB_BACKGROUND_NOISE_MIN_FRAMES || 2));
-          const voiceHoldMs = Math.max(120, Number(process.env.MB_BACKGROUND_NOISE_HOLD_MS || 420));
-          if (currentRms >= minVoiceRms) {
-            voiceActiveFrames += 1;
-            lastVoiceAt = Date.now();
-          } else {
-            voiceActiveFrames = 0;
-          }
-          const shouldForwardUserAudio = voiceActiveFrames >= voiceFramesNeeded || (Date.now() - lastVoiceAt) <= voiceHoldMs;
-          if (!shouldForwardUserAudio) {
-            return;
-          }
           const baseAllowed = !(gemini?.isBargeInAllowed) || gemini.isBargeInAllowed();
           const allowBarge = gemini?.shouldAllowBargeIn
-            ? gemini.shouldAllowBargeIn({
-                openingPhase: gemini?.isOpeningPhase?.(),
-                baseAllowed,
-                rms: currentRms,
-              })
+            ? gemini.shouldAllowBargeIn({ openingPhase: gemini?.isOpeningPhase?.(), baseAllowed, rms: currentRms })
             : baseAllowed;
           interruptionManager.evaluateSpeech({
             rms: currentRms,
             bargeInAllowed: allowBarge,
           });
-          gemini.sendPcm16kBase64(
-            Buffer.from(
-              processed.samples.buffer,
-              processed.samples.byteOffset,
-              processed.samples.byteLength
-            ).toString("base64")
-          );
+          gemini.sendPcm16kBase64(Buffer.from(processed.samples.buffer, processed.samples.byteOffset, processed.samples.byteLength).toString("base64"));
         } catch (e) {
-          logger.debug("Inbound audio preprocess failed; forwarding raw audio", {
-            streamSid,
-            callSid,
-            error: e?.message || String(e),
-          });
+          logger.debug("Inbound audio preprocess failed; forwarding raw audio", { streamSid, callSid, error: e?.message || String(e) });
           gemini.sendUlaw8kFromTwilio(b64);
         }
         return;
@@ -417,10 +331,7 @@ function installTwilioMediaWs(server) {
 
       if (ev === "mark") {
         const pendingPlaybackMarks = interruptionManager.notePlaybackMarkReceived();
-        if (gemini?.notePlaybackMarkReceived) gemini.notePlaybackMarkReceived();
-        if (pendingPlaybackMarks === 0 && gemini?.noteAssistantPlaybackStop) {
-          gemini.noteAssistantPlaybackStop();
-        }
+        if (pendingPlaybackMarks === 0 && gemini?.noteAssistantPlaybackStop) gemini.noteAssistantPlaybackStop();
 
         recordCallEvent({
           callSid,
@@ -455,21 +366,12 @@ function installTwilioMediaWs(server) {
           conversationLog: Array.isArray(snap?.conversationLog) ? snap.conversationLog : [],
           lead: snap?.lead || {},
         }));
-        if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "completed", endedAt: new Date().toISOString() });
-        if (!stopped && gemini) {
-          stopped = true;
-          gemini.endInput();
-          gemini.stop();
-        }
+        stopGeminiOnce("twilio_stop");
         return;
       }
 
       if (ev === "connected") {
-        logger.info("Twilio WS event", {
-          event: "connected",
-          streamSid: null,
-          callSid: null,
-        });
+        logger.info("Twilio WS event", { event: "connected", streamSid: null, callSid: null });
       }
     });
 
@@ -484,19 +386,11 @@ function installTwilioMediaWs(server) {
         level: "info",
         data: {},
       });
-      if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "completed", endedAt: new Date().toISOString() });
-      if (!stopped && gemini) {
-        stopped = true;
-        gemini.stop();
-      }
+      stopGeminiOnce("twilio_ws_close");
     });
 
     twilioWs.on("error", (err) => {
-      logger.error("Twilio media WS error", {
-        streamSid,
-        callSid,
-        error: err.message,
-      });
+      logger.error("Twilio media WS error", { streamSid, callSid, error: err.message });
       recordCallEvent({
         callSid,
         streamSid,
@@ -506,11 +400,7 @@ function installTwilioMediaWs(server) {
         level: "error",
         data: { error: err.message },
       });
-      if (gemini?.markTwilioTerminal) gemini.markTwilioTerminal({ status: "failed", endedAt: new Date().toISOString() });
-      if (!stopped && gemini) {
-        stopped = true;
-        gemini.stop();
-      }
+      stopGeminiOnce("twilio_ws_close");
     });
   });
 

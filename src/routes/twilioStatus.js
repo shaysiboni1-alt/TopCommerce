@@ -96,7 +96,7 @@ function handleTwilioStatus(req, res) {
     logger.info("Twilio status webhook", meta);
 
     if (meta.callSid && meta.callStatus && TERMINAL_STATUSES.has(meta.callStatus)) {
-      setTimeout(() => {
+      setImmediate(() => {
         ensureFinalized({
           callSid: meta.callSid,
           source: `twilio_status_${meta.callStatus}`,
@@ -108,7 +108,7 @@ function handleTwilioStatus(req, res) {
         forwardUsageToSupabase(meta).catch((err) => {
           logger.warn("Supabase usage forwarding failed", { callSid: meta.callSid, callStatus: meta.callStatus, to: meta.to, callDurationRaw: meta.callDurationRaw, err: String(err?.message || err) });
         });
-      }, 200);
+      });
     }
   } catch (e) {
     logger.warn("Twilio status webhook parse error", { err: String(e?.message || e) });

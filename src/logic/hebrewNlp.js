@@ -1,7 +1,5 @@
 "use strict";
 
-const { getHebrewRecoveryAggressive } = require("../config/runtimeSettings");
-
 const HEBREW_DIACRITICS_RE = /[\u0591-\u05C7]/g;
 const HEBREW_CHAR_RE = /[\u0590-\u05FF]/;
 
@@ -137,12 +135,7 @@ function applyPhraseMap(text, replacements) {
 
 const PHRASE_FIXES = [
   ["של ום", "שלום"],
-  ["של ו ם", "שלום"],
   ["א פשר", "אפשר"],
-  ["ר צי תי", "רציתי"],
-  ["ר ציתי", "רציתי"],
-  ["ל דעת", "לדעת"],
-  ["תי ל דעת", "תי לדעת"],
   ["ב בקשה", "בבקשה"],
   ["שה יא", "שהיא"],
   ["ש נייה", "שנייה"],
@@ -173,30 +166,6 @@ const PHRASE_FIXES = [
   ["ו הפ ס ד", "והפסד"],
   ["ש יא", "שהיא"],
   ["א פשר", "אפשר"],
-  ["ר צי תי", "רציתי"],
-  ["ר ציתי", "רציתי"],
-  ["ל דעת", "לדעת"],
-  ["תי ל דעת", "תי לדעת"],
-  ["מת ע ניין", "מתעניין"],
-  ["מת ע נין", "מתענין"],
-  ["מת עניין", "מתעניין"],
-  ["מתענייןב", "מתעניין ב"],
-  ["מתעניןב", "מתענין ב"],
-  ["ב כיס אות", "בכיסאות"],
-  ["כיס אות", "כיסאות"],
-  ["ל קו חות", "לקוחות"],
-  ["לקו חות", "לקוחות"],
-  ["לקוחות חדשי", "לקוחות חדשים"],
-  ["לקוחות חדשות", "לקוחות חדשים"],
-  ["לקוח חדשי", "לקוח חדש"],
-  ["לקוחות קיימי", "לקוחות קיימים"],
-  ["לקוח עסקי", "לקוח עסקי"],
-  ["ל קוח", "לקוח"],
-  ["כ ס א", "כיסא"],
-  ["שול חן", "שולחן"],
-  ["שול חנות", "שולחנות"],
-  ["ב שולחנות", "בשולחנות"],
-  ["ב כיסאות", "בכיסאות"],
 ];
 
 function joinSplitDigits(text) {
@@ -212,151 +181,6 @@ function joinSplitDigits(text) {
 function joinCommonHebrewFragments(text) {
   let s = safeStr(text);
   if (!s || !HEBREW_CHAR_RE.test(s)) return s;
-
-  const NON_JOINABLE_SHORT_WORDS = new Set([
-    "אני",
-    "אתה",
-    "את",
-    "הוא",
-    "היא",
-    "אנחנו",
-    "הם",
-    "הן",
-    "זה",
-    "זאת",
-    "זו",
-    "לא",
-    "כן",
-    "עם",
-    "על",
-    "אל",
-    "של",
-    "כל",
-    "גם",
-    "אם",
-    "כי",
-    "מה",
-    "מי",
-    "פה",
-    "שם",
-    "יש",
-    "אין",
-    "או",
-  ]);
-  const JOINABLE_PREFIX_LETTERS = new Set(["ב", "ל", "כ", "ו", "ש", "מ", "ה", "ת"]);
-  const SAFE_GLUE_WORDS = new Set([
-    "או",
-    "של",
-    "עם",
-    "על",
-    "אל",
-    "אם",
-    "גם",
-    "כל",
-    "מה",
-    "מי",
-    "מן",
-    "לא",
-    "כן",
-  ]);
-
-  const isPlainHebrewToken = (part) => /^[א-ת]+$/u.test(safeStr(part).trim());
-  const isJoinableHebrewPart = (part) => {
-    const t = safeStr(part).trim();
-    return !!t && isPlainHebrewToken(t) && !NON_JOINABLE_SHORT_WORDS.has(t);
-  };
-  const splitTrailingGlueWord = (token) => {
-    const t = safeStr(token).trim();
-    if (!isPlainHebrewToken(t) || t.length < 5) return null;
-
-    for (const glueWord of SAFE_GLUE_WORDS) {
-      if (!t.endsWith(glueWord) || t === glueWord) continue;
-      const base = t.slice(0, -glueWord.length);
-      if (!base || base.length < 2) continue;
-      if (!isPlainHebrewToken(base)) continue;
-      if (NON_JOINABLE_SHORT_WORDS.has(base)) continue;
-      if (base.endsWith("ו") || base.endsWith("ש")) continue;
-      return `${base} ${glueWord}`;
-    }
-
-    return null;
-  };
-  const reconstructSplitHebrewTokens = (input) => {
-    const tokens = safeStr(input).split(/\s+/g).filter(Boolean);
-    if (!tokens.length) return input;
-
-    const out = [];
-
-    for (let i = 0; i < tokens.length; ) {
-      const current = tokens[i];
-      const next = tokens[i + 1];
-      const nextNext = tokens[i + 2];
-
-      if (
-        isJoinableHebrewPart(current) &&
-        isPlainHebrewToken(next) &&
-        next.length === 1 &&
-        isJoinableHebrewPart(nextNext) &&
-        nextNext.length <= 5
-      ) {
-        out.push(`${current}${next}${nextNext}`);
-        i += 3;
-        continue;
-      }
-
-      if (
-        isJoinableHebrewPart(current) &&
-        isJoinableHebrewPart(next) &&
-        next.length >= 1 &&
-        next.length <= 2 &&
-        !SAFE_GLUE_WORDS.has(next)
-      ) {
-        out.push(`${current}${next}`);
-        i += 2;
-        continue;
-      }
-
-      if (
-        isPlainHebrewToken(current) &&
-        current.length === 1 &&
-        JOINABLE_PREFIX_LETTERS.has(current) &&
-        isJoinableHebrewPart(next) &&
-        next.length >= 2
-      ) {
-        out.push(`${current}${next}`);
-        i += 2;
-        continue;
-      }
-
-      out.push(current);
-      i += 1;
-    }
-
-    return out.join(" ");
-  };
-  const splitAccidentallyGluedHebrewWords = (input) => {
-    const tokens = safeStr(input).split(/\s+/g).filter(Boolean);
-    if (!tokens.length) return input;
-
-    const out = [];
-
-    for (const token of tokens) {
-      if (!isPlainHebrewToken(token)) {
-        out.push(token);
-        continue;
-      }
-
-      const gluedSplit = splitTrailingGlueWord(token);
-      if (gluedSplit) {
-        out.push(gluedSplit);
-        continue;
-      }
-
-      out.push(token);
-    }
-
-    return out.join(" ");
-  };
 
   s = applyPhraseMap(s, PHRASE_FIXES);
 
@@ -379,17 +203,8 @@ function joinCommonHebrewFragments(text) {
   s = s.replace(/\bל\s+קבל\b/gu, "לקבל");
   s = s.replace(/\bו\s+הפסד\b/gu, "והפסד");
 
-  for (let i = 0; i < 3; i += 1) {
-    const next = reconstructSplitHebrewTokens(s);
-    if (next === s) break;
-    s = next;
-  }
-
-  for (let i = 0; i < 2; i += 1) {
-    const next = splitAccidentallyGluedHebrewWords(s);
-    if (next === s) break;
-    s = next;
-  }
+  s = s.replace(/\b([א-ת])\s+([א-ת]{2,})\b/gu, "$1$2");
+  s = s.replace(/\b([א-ת]{2,})\s+([א-ת])\b/gu, "$1$2");
 
   s = joinSplitDigits(s);
 
@@ -402,25 +217,6 @@ function joinCommonHebrewFragments(text) {
   s = s.replace(/\bשנת\s*(\d{4})\b/gu, "שנת $1");
   s = s.replace(/\s{2,}/g, " ").trim();
 
-  return s;
-}
-
-function repairHebrewProductPhrases(text) {
-  let s = safeStr(text);
-  if (!s) return s;
-
-  const repairs = [
-    [/\bכיס\s+אות\b/gu, "כיסאות"],
-    [/\bכס\s+אות\b/gu, "כסאות"],
-    [/\bכיס\s+א\b/gu, "כיסא"],
-    [/\bשול\s+חן\b/gu, "שולחן"],
-    [/\bשול\s+חנות\b/gu, "שולחנות"],
-    [/\bמת\s*ע\s*ניין\b/gu, "מתעניין"],
-    [/\bמת\s+עניין\b/gu, "מתעניין"],
-    [/\bרציתי\s*ל\s*דעת\b/gu, "רציתי לדעת"],
-  ];
-
-  for (const [pattern, replacement] of repairs) s = s.replace(pattern, replacement);
   return s;
 }
 
@@ -456,9 +252,7 @@ function normalizeUtterance(text) {
 
   let normalized = basicNormalize(raw);
   normalized = joinCommonHebrewFragments(normalized);
-  if (getHebrewRecoveryAggressive()) normalized = repairHebrewProductPhrases(normalized);
   normalized = normalizeHebrewBusinessTerms(normalized);
-  if (getHebrewRecoveryAggressive()) normalized = repairHebrewProductPhrases(normalized);
   normalized = collapseWhitespace(normalized);
 
   const langInfo = detectLanguageDetailed(normalized);

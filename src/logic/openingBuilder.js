@@ -33,18 +33,6 @@ function applyTemplate(tpl, vars) {
   });
 }
 
-
-function maybeShortenTelephonyOpening(text) {
-  let s = safeStr(text).replace(/\s+/g, " ").trim();
-  if (!s) return s;
-  s = s.replace(/^היי,?\s*שמי\s+[^,]+\s+מחברת\s+טופ\s+קומרס,?\s*/u, "");
-  s = s.replace(/^שלום,?\s*שמי\s+[^,]+\s+מחברת\s+טופ\s+קומרס,?\s*/u, "");
-  s = s.replace(/אני נציגה וירטואלית שמבינה דיבור\.?\s*/u, "");
-  s = s.replace(/אשמח לקחת מספר פרטים ונדאג שיחזרו אליכם בהקדם\.?\s*/u, "");
-  s = s.replace(/מובילים בריהוט משרדי וציוד ארגונומי\.?\s*/u, "");
-  return s.replace(/\s{2,}/g, " ").trim();
-}
-
 function computeGreetingHebrew(timeZone) {
   const tz = timeZone || "Asia/Jerusalem";
   const hourStr = new Intl.DateTimeFormat("en-US", {
@@ -104,11 +92,11 @@ function getOpeningScriptFromSSOT(ssot, vars) {
     ...vars,
   };
 
-  const filled = maybeShortenTelephonyOpening(applyTemplate(tpl, merged)
+  const filled = applyTemplate(tpl, merged)
     .replace(/\s{2,}/g, " ")
     .replace(/\s+,/g, ",")
     .replace(/,\s+,/g, ",")
-    .trim());
+    .trim();
 
   return filled || "שלום! איך נוכל לעזור?";
 }

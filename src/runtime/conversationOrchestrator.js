@@ -6,21 +6,21 @@ const { TurnManager } = require("./turnManager");
 const { SilenceManager } = require("./silenceManager");
 const { AudioPolicy } = require("./audioPolicy");
 const { recordCallEvent } = require("../debug/debugLogger");
-const { getPostOpeningSilenceGraceMs } = require("../config/runtimeSettings");
 const { DEBUG_EVENT_CATEGORIES } = require("../debug/debugEventTypes");
 
 class ConversationOrchestrator {
-  constructor({ env, ssot, meta, callSession, sendImmediateText }) {
+  constructor({ env, ssot, meta, callSession, sendImmediateText, onLongSilence }) {
     this.env = env || {};
     this.ssot = ssot || {};
     this.meta = meta || {};
     this.callSession = callSession || null;
     this.sendImmediateText = typeof sendImmediateText === "function" ? sendImmediateText : () => {};
+    this.onLongSilence = typeof onLongSilence === "function" ? onLongSilence : () => {};
 
     this.memory = new ConversationMemory({ meta, ssot });
     this.turnManager = new TurnManager();
-    this.leadManager = new LeadManager({ callSession, memory: this.memory });
-    this.audioPolicy = new AudioPolicy({ env, turnManager: this.turnManager });
+    this.leadManager = new LeadManager({ callSession, memory: this.memory, ssot });
+    this.audioPolicy = new AudioPolicy({ env, turnManager: this.turnManager, memory: this.memory });
     this.silenceManager = new SilenceManager({
       env,
       ssot,
@@ -29,6 +29,12 @@ class ConversationOrchestrator {
         if (!safeStr(text)) return;
         this.sendImmediateText(text, `SILENCE_PROMPT_${level}`);
         this._record("SILENCE_PROMPT_SENT", { level, context, text });
+        this._syncSnapshot();
+      },
+      onLongSilence: ({ text, context, timeoutMs }) => {
+        this.memory.noteClosing(true);
+        this._record("LONG_SILENCE_HANGUP_TRIGGERED", { context, timeout_ms: timeoutMs, text }, "info");
+        this.onLongSilence({ text, context, timeoutMs });
         this._syncSnapshot();
       },
     });
@@ -59,6 +65,7 @@ class ConversationOrchestrator {
         ...(snap?.call || {}),
         orchestrator_stage: mem.stage || null,
         orchestrator_intent: mem.intent || null,
+        active_step: mem.activeStep || null,
         turn_count: mem.turns || 0,
         meaningful_user_turn_count: mem.meaningfulUserTurns || 0,
         silence_count: mem.silenceCount || 0,
@@ -90,12 +97,17 @@ class ConversationOrchestrator {
     this._syncSnapshot();
   }
 
-  noteTranscript(role, text, normalized) {
+  noteTranscript(role, text, normalized, meta = {}) {
     const value = safeStr(text);
     if (!value) return;
+    const label = safeStr(meta.immediateLabel || meta.label);
+    const isSilencePrompt = /^SILENCE_PROMPT_/u.test(label);
+    const isLongSilencePrompt = label === "LONG_SILENCE_FINAL_PROMPT_SENT";
+
     if (role === "assistant") {
       this.turnManager.noteAssistantTurn();
       this.memory.noteAssistantTurn(value);
+      if (!isSilencePrompt && !isLongSilencePrompt) this.silenceManager.arm(Date.now());
     } else {
       this.turnManager.noteUserTurn();
       this.memory.noteUserTurn(value, true);
@@ -122,18 +134,34 @@ class ConversationOrchestrator {
     this._syncSnapshot();
   }
 
-  noteAssistantPlaybackStop() {
+  noteAssistantPlaybackStop(meta = {}) {
+    const label = safeStr(meta.outputLabel || meta.label);
     this.turnManager.noteAssistantPlaybackStop();
-    const mem = this.memory.snapshot();
-    const firstLevelExtraMs = mem.userTurns <= 0 ? getPostOpeningSilenceGraceMs() : 0;
-    this.silenceManager.arm(Date.now(), { firstLevelExtraMs });
+    if (/^SILENCE_PROMPT_(\d+)$/u.test(label)) {
+      const m = label.match(/^SILENCE_PROMPT_(\d+)$/u);
+      const level = Number(m?.[1] || 1);
+      this.silenceManager.afterAssistantPrompt(level);
+    } else if (label === "LONG_SILENCE_FINAL_PROMPT_SENT") {
+      this.silenceManager.stop();
+    } else {
+      this.silenceManager.arm(Date.now());
+    }
     this._syncSnapshot();
   }
 
-  noteImmediatePrompt(kind) {
-    if (kind === "name") this.memory.noteAsked("name");
-    if (kind === "callback") this.memory.noteAsked("callback");
-    if (kind === "subject") this.memory.noteAsked("subject");
+  noteImmediatePrompt(kind, label = null) {
+    if (kind === "name") this.memory.noteAsked("name", label);
+    if (kind === "callback") this.memory.noteAsked("callback", label);
+    if (kind === "subject") this.memory.noteAsked("subject", label);
+    if (kind === "reports_type") this.memory.noteAsked("reports_type", label);
+    if (kind === "reports_period") this.memory.noteAsked("reports_period", label);
+    if (kind === "reports_for_whom") this.memory.noteAsked("reports_for_whom", label);
+    if (kind === "silence") {
+      const ctx = this.memory.getSilenceContext();
+      if (ctx === "callback") this.memory.setActiveStep("callback");
+      else if (ctx === "opening") this.memory.setActiveStep("name");
+      else if (ctx === "lead") this.memory.setActiveStep("subject");
+    }
     this._syncSnapshot();
   }
 
@@ -144,11 +172,6 @@ class ConversationOrchestrator {
 
   noteIntent(intent) {
     this.leadManager.noteIntent(intent);
-    this._syncSnapshot();
-  }
-
-  noteSubject(subject) {
-    this.leadManager.noteSubject(subject);
     this._syncSnapshot();
   }
 

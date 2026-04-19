@@ -56,16 +56,14 @@ function scoreTriggerAgainstVariants(trigger, variants) {
 function scoreIntentSuggestions(textRaw, suggestions) {
   const text = normalizeUtterance(textRaw || "").normalized;
   if (!text) return null;
-  const compactText = text.replace(/\s+/g, "");
-  if (compactText.length < 4) return null;
   let best = null;
   for (const row of Array.isArray(suggestions) ? suggestions : []) {
     const phrase = normalizeUtterance(row?.phrase_he || "").normalized;
     const suggested_intent_id = String(row?.suggested_intent_id || "").trim();
     if (!phrase || !suggested_intent_id) continue;
     let score = 0;
-    if (text.includes(phrase)) score = 9;
-    else if (compactText.includes(phrase.replace(/\s+/g,""))) score = 7;
+    if (text.includes(phrase) || phrase.includes(text)) score = 9;
+    else if (text.replace(/\s+/g,"").includes(phrase.replace(/\s+/g,""))) score = 7;
     if (!score) continue;
     const confidence = Number(row?.confidence || 0) || 0;
     const candidate = { intent_id: suggested_intent_id, intent_type: String(row?.suggested_intent_type || "other").trim() || "other", score: score + confidence, priority: 0, matched_triggers: [row?.phrase_he || phrase] };
@@ -99,16 +97,6 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
 
   const prepared = buildVariants(textRaw);
   const suggestions = Array.isArray(opts.intentSuggestions) ? opts.intentSuggestions : [];
-  const compactInput = String(prepared.normalized || "").replace(/\s+/g, "");
-  if (compactInput.length < 4) {
-    return {
-      intent_id: "other",
-      intent_type: "other",
-      score: 0,
-      priority: 0,
-      matched_triggers: [],
-    };
-  }
   const lang =
     opts.forceLang ||
     prepared.lang ||
@@ -158,6 +146,14 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
     }
 
     if (
+      intentId === "reach_margarita" &&
+      (/מרגריטה|ריטה/u.test(nv) || compact.includes("מרגריטה"))
+    ) {
+      score += 4;
+      matched.push("מרגריטה");
+    }
+
+    if (
       intentId === "callback_request" &&
       (/לחזור|תחזור|יחזרו|שיחזרו|תחזרי|שתחזור/u.test(nv) || compact.includes("לחזור"))
     ) {
@@ -171,35 +167,6 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
     ) {
       score += 8;
       matched.push("לא");
-    }
-
-    // noisy Hebrew / split-token fallback for core telephony classification turns
-    if (intentId === "new_customer") {
-      if (/(לקוחות?\s*חדשי(?:ם)?|לקוח\s*חדש|לקוח(?:ד|ת)?\s*ש|חדש(?:ים)?)/u.test(nv) || compact.includes("לקוחותחדשי") || compact.includes("לקוחדש")) {
-        score += 7;
-        matched.push("חדש");
-      }
-    }
-
-    if (intentId === "existing_customer") {
-      if (/(לקוחות?\s*קיימי(?:ם)?|לקוח\s*קיים|קיימ(?:ים|י)?|ותיק(?:ים)?)/u.test(nv) || compact.includes("לקוחותקיימ") || compact.includes("לקוחקיים")) {
-        score += 7;
-        matched.push("קיים");
-      }
-    }
-
-    if (intentId === "business_customer") {
-      if (/(עסקי(?:ת|ים)?)/u.test(nv) || compact.includes("עסקי")) {
-        score += 7;
-        matched.push("עסקי");
-      }
-    }
-
-    if (intentId === "private_customer") {
-      if (/(פרטי(?:ת|ים)?)/u.test(nv) || compact.includes("פרטי")) {
-        score += 7;
-        matched.push("פרטי");
-      }
     }
 
     if (score <= 0) continue;
