@@ -15,7 +15,9 @@ const {
   getUserTranscriptMaxBufferMs,
   getBotTranscriptFlushMs,
   getBotTranscriptStableGapMs,
+  getLlmSlotEmissionEnabled,
 } = require("../config/runtimeSettings");
+const { parseSlotTags, slotValueInRecentBuffer } = require("../realtime/slotParser");
 const {
   ulaw8kB64ToPcm16kB64,
   pcm24kB64ToUlaw8kB64,
@@ -134,6 +136,7 @@ class GeminiLiveSession {
     this._pendingImmediateExactText = "";
     this._pendingImmediateLabel = "";
     this._currentAssistantOutputLabel = "";
+    this._recentUserRawBuffer = "";
 
     this._openingPhase = true;
     this._conversationPhaseStarted = false;
@@ -522,6 +525,11 @@ class GeminiLiveSession {
           } else if (typeof p?.text === "string") {
             let cleaned = scrubReasoningText(p.text);
             if (this._shouldReplaceWithPendingImmediateText(cleaned)) cleaned = this._consumePendingImmediateText();
+            if (getLlmSlotEmissionEnabled()) {
+              const { slots, cleanText } = parseSlotTags(cleaned);
+              if (Object.keys(slots).length) this._commitLlmSlots(slots);
+              cleaned = cleanText;
+            }
             const suppressed = this._shouldSuppressBotText(cleaned);
             if (cleaned && !suppressed && this.onGeminiText) this.onGeminiText(cleaned);
             if (cleaned && !suppressed) {
@@ -552,7 +560,11 @@ class GeminiLiveSession {
 
       try {
         const inTr = msg?.serverContent?.inputTranscription?.text;
-        if (inTr) this._onTranscriptChunk("user", String(inTr));
+        if (inTr) {
+          const inTrStr = String(inTr);
+          this._recentUserRawBuffer = `${this._recentUserRawBuffer} ${inTrStr}`.slice(-500).trim();
+          this._onTranscriptChunk("user", inTrStr);
+        }
 
         const outTr = msg?.serverContent?.outputTranscription?.text;
         let cleanedOut = scrubReasoningText(String(outTr || ""));
@@ -868,6 +880,39 @@ class GeminiLiveSession {
       });
     } catch (e) {
       logger.debug("Failed sending context update", { ...this.meta, error: e?.message });
+    }
+  }
+
+  _commitLlmSlots(slots) {
+    const orch = this._orchestrator;
+    if (!orch || !slots || !Object.keys(slots).length) return;
+    const recentUser = this._recentUserRawBuffer || "";
+    for (const [key, value] of Object.entries(slots)) {
+      if (!value) continue;
+      if (!slotValueInRecentBuffer(value, recentUser)) {
+        recordCallEvent({
+          callSid: this._getCallData().callSid,
+          streamSid: this._getCallData().streamSid,
+          category: DEBUG_EVENT_CATEGORIES.CONVERSATION,
+          type: "LLM_SLOT_DIVERGENCE",
+          source: "geminiLiveSession",
+          level: "warn",
+          data: { key, value, reason: "not_in_recent_user_transcript" },
+        });
+        continue;
+      }
+      if (key === "name") orch.noteName(value, "llm_slot_emission");
+      else if (key === "intent") orch.noteIntent(value);
+      else if (key === "callback") orch.noteCallback(value);
+      recordCallEvent({
+        callSid: this._getCallData().callSid,
+        streamSid: this._getCallData().streamSid,
+        category: DEBUG_EVENT_CATEGORIES.CONVERSATION,
+        type: "LLM_SLOT_COMMITTED",
+        source: "geminiLiveSession",
+        level: "info",
+        data: { key, value },
+      });
     }
   }
 

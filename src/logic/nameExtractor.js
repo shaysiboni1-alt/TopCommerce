@@ -80,6 +80,15 @@ function normalizeSingleHebrewNameToken(token) {
   return t;
 }
 
+const CONTINUATION_TOKENS_HE = /^(ואני|ואנ|ואנכ|ואנכי|אני|אבל|כי|ש|שאני|שאנ|שהוא|שהיא|שהם|שהן|ורוצה|ורציתי|וצריך|וצריכה|ומחפש|ומחפשת|מתעניין|מתעניינת|מחפש|מחפשת|צריך|צריכה|רוצה|רציתי|ו)$/u;
+
+function truncateAtContinuation(tokens) {
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (CONTINUATION_TOKENS_HE.test(tokens[i])) return tokens.slice(0, i);
+  }
+  return tokens;
+}
+
 function sanitizeCandidate(raw, opts = {}) {
   const directReply = !!opts.directReply;
   const explicit = !!opts.explicit;
@@ -98,7 +107,7 @@ function sanitizeCandidate(raw, opts = {}) {
   if (!isSupportedScript(t)) return null;
   if (hasMixedScripts(t)) return null;
 
-  let parts = t.split(/\s+/).filter(Boolean);
+  let parts = truncateAtContinuation(t.split(/\s+/).filter(Boolean));
   if (parts.length < 1 || parts.length > 2) return null;
   if (t.length < 2 || t.length > 30) return null;
 

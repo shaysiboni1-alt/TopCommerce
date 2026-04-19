@@ -109,6 +109,21 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
     "- When a matching intent or suggestion exists in SSOT, follow it before improvising.",
   ].join("\n"));
 
+  const slotEmissionEnabled = safeStr(settings.LLM_SLOT_EMISSION_ENABLED).toLowerCase() === "true";
+  if (slotEmissionEnabled) {
+    sections.push([
+      "SLOT EMISSION PROTOCOL (HARD RULE):",
+      "- When you confidently identify a slot value from user speech, emit it as [SLOT:key=value].",
+      "- Emit the tag BEFORE your spoken response in the same turn.",
+      "- Emit only slots you are highly confident about. Do not guess.",
+      "- Allowed slot keys: name, intent, subject, callback, customer_type.",
+      "- Example: [SLOT:name=שי] שי, שמחים לעזור. במה נוכל לסייע?",
+      "- The tag is for system use only. It is NEVER spoken aloud.",
+      "- If a slot already appears in the [CONTEXT_UPDATE] collected section, do NOT re-emit it.",
+      "- If you are not confident about a value, omit the tag entirely — the system has a fallback.",
+    ].join("\n"));
+  }
+
   sections.push([
     "CONTEXT_UPDATE PROTOCOL (HARD RULE):",
     "- During the call you will receive structured [CONTEXT_UPDATE]...[/CONTEXT_UPDATE] blocks.",

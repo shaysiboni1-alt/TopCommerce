@@ -110,6 +110,10 @@ function getBotTranscriptStableGapMs() {
   return Math.max(120, safeInt(getSettingFirst("MB_BOT_TRANSCRIPT_STABLE_GAP_MS", env.MB_BOT_TRANSCRIPT_STABLE_GAP_MS), 220));
 }
 
+function getLlmSlotEmissionEnabled() {
+  return safeStr(getSettingFirst("LLM_SLOT_EMISSION_ENABLED", "false")).toLowerCase() === "true";
+}
+
 module.exports = {
   safeStr,
   applyTemplate,
@@ -124,5 +128,6 @@ module.exports = {
   getUserTranscriptMaxBufferMs,
   getBotTranscriptFlushMs,
   getBotTranscriptStableGapMs,
+  getLlmSlotEmissionEnabled,
   getSettingFirst,
 };
