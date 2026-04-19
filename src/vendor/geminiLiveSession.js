@@ -432,7 +432,11 @@ class GeminiLiveSession {
   }
 
   _getUserMinStableGapMs() {
-    const base = getUserTranscriptStableGapMs();
+    let base = getUserTranscriptStableGapMs();
+    const mem = this._orchestrator?.memory?.snapshot();
+    if (this.isOpeningPhase() || (mem && mem.meaningfulUserTurns === 0)) {
+      base = Math.max(base, 800);
+    }
     return this._orchestrator?.getUserStableGapMs?.(base) || base;
   }
 

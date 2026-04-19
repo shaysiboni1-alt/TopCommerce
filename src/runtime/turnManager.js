@@ -151,7 +151,7 @@ class TurnManager {
     let gap = Number(baseMs) || 360;
     if (now - this.state.lastInterruptAt < 1800) gap += 120;
     if (this.state.interruptionPending) gap += 60;
-    return Math.max(180, Math.min(720, gap));
+    return Math.max(180, Math.min(1200, gap));
   }
 
   snapshot() {
