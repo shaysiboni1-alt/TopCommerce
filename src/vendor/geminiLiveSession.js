@@ -88,6 +88,51 @@ function normalizeCompactHebrew(text) {
   return normalizeUtterance(safeStr(text)).normalized.replace(/\s+/g, '');
 }
 
+// Maximum ms after bot speech ends during which an identical user transcript
+// is treated as acoustic echo and suppressed. Not a tunable sensitivity dial —
+// this is the maximum plausible echo delay on a telephony path (network jitter
+// + Twilio buffer + STT latency). Raising it beyond ~5s risks suppressing
+// genuine fast replies; lowering it below ~2s lets short-delay echoes through.
+const BOT_ECHO_GUARD_WINDOW_MS = 4000;
+
+// Returns true when a user-channel transcript matches text the bot recently
+// produced, indicating acoustic echo leaked through AEC into Gemini's STT.
+// Mirrors shouldIgnoreAssistantTranscript but runs on the user side.
+function isUserTranscriptBotEcho(session, text) {
+  const value = safeStr(text).replace(/\s+/g, ' ').trim();
+  if (!value) return false;
+  const compactCandidate = normalizeCompactHebrew(value);
+  if (!compactCandidate) return false;
+
+  const now = Date.now();
+
+  // Guard 1: matches the most recent bot output text within the echo window.
+  const lastBotText = safeStr(session?._lastBotText);
+  if (lastBotText && (now - Number(session?._lastBotTextAt || 0)) < BOT_ECHO_GUARD_WINDOW_MS) {
+    const compactBot = normalizeCompactHebrew(lastBotText);
+    if (compactBot && compactCandidate === compactBot) return true;
+  }
+
+  // Guard 2: matches the most recent injected immediate-text prompt.
+  // _lastImmediatePrompt holds the verbatim text sent to Gemini via clientContent.
+  const lastPrompt = session?._lastImmediatePrompt;
+  if (lastPrompt?.text && (now - Number(lastPrompt.at || 0)) < BOT_ECHO_GUARD_WINDOW_MS) {
+    const compactPrompt = normalizeCompactHebrew(lastPrompt.text);
+    if (compactPrompt && compactCandidate === compactPrompt) return true;
+  }
+
+  // Guard 3: matches the pre-built opening text with no time window.
+  // Opening echo can arrive long after playback on slow connections because
+  // the opening is played before the conversation phase begins.
+  const openingText = safeStr(session?.meta?.prebuilt_opening_text);
+  if (openingText) {
+    const compactOpening = normalizeCompactHebrew(openingText);
+    if (compactOpening && compactCandidate === compactOpening) return true;
+  }
+
+  return false;
+}
+
 function shouldIgnoreAssistantTranscript(session, finalText) {
   const value = safeStr(finalText).replace(/\s+/g, ' ').trim();
   if (!value) return true;
@@ -188,6 +233,7 @@ class GeminiLiveSession {
     this._openingSentAt = 0;
     this._openingBargeInGraceUntilTs = 0;
     this._openingPhaseFallbackTimer = null;
+    this._openingPlaybackEndTimer = null;
 
     this._langState = {
       lockedLanguage: safeStr(this.env.MB_DEFAULT_LANGUAGE) || "he",
@@ -352,6 +398,11 @@ class GeminiLiveSession {
     if (this._openingPhaseFallbackTimer) {
       clearTimeout(this._openingPhaseFallbackTimer);
       this._openingPhaseFallbackTimer = null;
+    }
+
+    if (this._openingPlaybackEndTimer) {
+      clearTimeout(this._openingPlaybackEndTimer);
+      this._openingPlaybackEndTimer = null;
     }
 
     recordCallEvent({
@@ -854,7 +905,13 @@ class GeminiLiveSession {
   noteAssistantPlaybackStart() {
     this._assistantPlaybackActive = true;
     this.callSession?.markTimeline?.("first_audio_out_at");
-    if (this._openingPhase) this._openingAudioStarted = true;
+    if (this._openingPhase) {
+      this._openingAudioStarted = true;
+      if (this._openingPlaybackEndTimer) {
+        clearTimeout(this._openingPlaybackEndTimer);
+        this._openingPlaybackEndTimer = null;
+      }
+    }
     this._orchestrator?.noteAssistantPlaybackStart?.();
 
     recordCallEvent({
@@ -875,7 +932,15 @@ class GeminiLiveSession {
     this._orchestrator?.noteAssistantPlaybackStop?.();
 
     if (this._openingPhase) {
-      this._endOpeningPhase(this._openingAudioStarted ? "opening_playback_finished" : "opening_playback_stopped");
+      if (!this._openingAudioStarted) {
+        this._endOpeningPhase("opening_playback_stopped");
+      } else {
+        if (this._openingPlaybackEndTimer) clearTimeout(this._openingPlaybackEndTimer);
+        this._openingPlaybackEndTimer = setTimeout(() => {
+          this._openingPlaybackEndTimer = null;
+          this._endOpeningPhase("opening_playback_finished");
+        }, 350);
+      }
     }
 
     recordCallEvent({
@@ -1145,6 +1210,27 @@ class GeminiLiveSession {
       logger.info("IGNORED_NOISE_USER_TRANSCRIPT", {
         ...this.meta,
         text: effectiveUserText,
+      });
+      return;
+    }
+
+    if (role === "user" && isUserTranscriptBotEcho(this, finalText)) {
+      logger.info("IGNORED_BOT_ECHO_USER_TRANSCRIPT", {
+        ...this.meta,
+        text: finalText,
+      });
+      recordCallEvent({
+        callSid: this._getCallData().callSid,
+        streamSid: this._getCallData().streamSid,
+        category: DEBUG_EVENT_CATEGORIES.TRANSCRIPT,
+        type: DEBUG_EVENT_TYPES.TRANSCRIPT_SUPPRESSED,
+        source: "geminiLiveSession",
+        level: "info",
+        data: {
+          who: "user",
+          reason: "bot_echo_guard",
+          text: finalText,
+        },
       });
       return;
     }

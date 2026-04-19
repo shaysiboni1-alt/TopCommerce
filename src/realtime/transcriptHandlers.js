@@ -370,6 +370,10 @@ function containsSalvageableBusinessKeyword(text) {
 function shouldOverrideLowConfidence(session, normalizedUserText) {
   const compact = safeStr(normalizedUserText).replace(/\s+/g, "");
   if (compact.length < 5) return false;
+  const wordCount = safeStr(normalizedUserText).split(/\s+/).filter(Boolean).length;
+  if (wordCount === 1) return false;
+  const STRONG_ANCHOR = /(?:לקוח|לקוחות|חברה|עסק|עסקי|פרטי)/u;
+  if (wordCount === 2 && !STRONG_ANCHOR.test(normalizedUserText)) return false;
   if (!getLowConfidenceKeywordOverride()) return false;
   if (containsSalvageableBusinessKeyword(normalizedUserText)) return true;
   const quickIntent = detectIntent({
@@ -467,7 +471,7 @@ function isClassificationCollectionStage(mem) {
 
 function buildLowConfidenceClarification(session, mem, fuzzyIntentId = '') {
   const intentId = safeStr(fuzzyIntentId || mem?.intent || session?._lastDetectedIntent);
-  const askExistingOrNew = getApprovedScriptText(session, 'ASK_EXISTING_OR_NEW', 'לקוחות חדשים או קיימים?');
+  const askExistingOrNew = getApprovedScriptText(session, 'ASK_EXISTING_OR_NEW', 'לא שמעתי טוב — לקוחות חדשים או קיימים?');
   const askSegment = getApprovedScriptText(session, 'ASK_NEW_SEGMENT', 'עסקי או פרטי?');
   const askName = getApprovedScriptText(session, 'ASK_NAME', 'מה השם בבקשה?');
   const askProduct = getApprovedScriptText(session, 'ASK_PRODUCT_INTEREST', 'במה אתם מתעניינים?');
@@ -477,7 +481,7 @@ function buildLowConfidenceClarification(session, mem, fuzzyIntentId = '') {
   const hasName = !!((skipKnownCallerNameAsk && callerKnown) || mem?.collectedFields?.name || callerKnown);
   const hasSubject = !!mem?.collectedFields?.subject;
 
-  if (!intentId) return { text: askExistingOrNew, label: 'LOW_CONFIDENCE_REASK_CLASSIFICATION' };
+  if (!intentId || intentId === 'other') return { text: askExistingOrNew, label: 'LOW_CONFIDENCE_REASK_CLASSIFICATION' };
   if (intentId === 'new_customer') return { text: askSegment, label: 'LOW_CONFIDENCE_REASK_SEGMENT' };
   if (intentId === 'existing_customer') return { text: askNeedReturning, label: 'LOW_CONFIDENCE_REASK_NEED' };
   if ((intentId === 'business_customer' || intentId === 'private_customer') && !hasName) return { text: askName, label: 'LOW_CONFIDENCE_REASK_NAME' };

@@ -75,6 +75,10 @@ class ConversationMemory {
   noteIntent(intent) {
     const value = safeStr(intent);
     if (!value) return this.snapshot();
+    const CLASSIFICATION_INTENTS = ["new_customer", "existing_customer", "business_customer", "private_customer"];
+    const currentIsClassification = CLASSIFICATION_INTENTS.includes(safeStr(this.state.intent));
+    const newIsClassification = CLASSIFICATION_INTENTS.includes(value);
+    if (currentIsClassification && !newIsClassification) return this.snapshot();
     this.state.intent = value;
     this.state.collectedFields.intent = true;
     return this.snapshot();
