@@ -81,6 +81,11 @@ function mergeTranscriptChunks(prevText, nextChunk) {
   if (!next) return prev;
   if (prev === next) return prev;
   if (next.startsWith(prev)) return next;
+
+  const compactPrev = prev.replace(/\s+/g, "");
+  const compactNext = next.replace(/\s+/g, "");
+  if (compactPrev.length > 0 && compactNext.startsWith(compactPrev)) return next;
+
   if (prev.endsWith(next)) return prev;
 
   const overlap = longestSuffixPrefixOverlap(prev, next, 48);
