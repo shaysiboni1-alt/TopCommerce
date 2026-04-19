@@ -109,7 +109,60 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
     "- When a matching intent or suggestion exists in SSOT, follow it before improvising.",
   ].join("\n"));
 
+  sections.push([
+    "CONTEXT_UPDATE PROTOCOL (HARD RULE):",
+    "- During the call you will receive structured [CONTEXT_UPDATE]...[/CONTEXT_UPDATE] blocks.",
+    "- These are runtime memory injections from the system. They are NOT user speech.",
+    "- Do NOT read them aloud. Do NOT respond to them directly. Do NOT acknowledge them.",
+    "- Use the 'collected' fields to know what you already have — never ask for those again.",
+    "- Use the 'missing' fields to guide what to ask next, naturally, in one question at a time.",
+    "- If all required fields are collected, proceed to close the conversation naturally.",
+  ].join("\n"));
+
   return sections.filter(Boolean).join("\n\n---\n\n").trim();
 }
 
-module.exports = { buildSystemInstructionFromSSOT };
+function buildContextUpdateBlock(memorySnapshot) {
+  const s = memorySnapshot || {};
+  const fields = s.collectedFields || {};
+
+  const collected = [];
+  const missing = [];
+
+  if (fields.name && s.callerName) {
+    collected.push(`name: ${s.callerName}`);
+  } else {
+    missing.push(`name: required`);
+  }
+
+  if (s.customerType) {
+    collected.push(`customer_type: ${s.customerType}`);
+  }
+
+  if (fields.intent && s.intent) {
+    collected.push(`intent: ${s.intent}`);
+  }
+
+  if (fields.subject) {
+    collected.push(`subject: collected`);
+  } else if (s.intent !== "info") {
+    missing.push(`subject: required`);
+  }
+
+  if (fields.callback) {
+    collected.push(`callback: confirmed`);
+  } else if (s.intent === "callback_request" || s.awaitingCallbackConfirmation) {
+    missing.push(`callback: required`);
+  }
+
+  return [
+    "[CONTEXT_UPDATE]",
+    "collected:",
+    ...(collected.length ? collected : ["(none)"]),
+    "missing:",
+    ...(missing.length ? missing : ["(none)"]),
+    "[/CONTEXT_UPDATE]",
+  ].join("\n");
+}
+
+module.exports = { buildSystemInstructionFromSSOT, buildContextUpdateBlock };

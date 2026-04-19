@@ -213,6 +213,10 @@ class ConversationOrchestrator {
     return result;
   }
 
+  getContextSummary() {
+    return this.memory.snapshot();
+  }
+
   getUserFlushDelayMs(baseMs) {
     return this.turnManager.getSuggestedUserFlushMs(baseMs);
   }

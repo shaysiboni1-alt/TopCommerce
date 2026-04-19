@@ -31,7 +31,7 @@ const { finalizeThroughCoordinator } = require("../finalization/finalizationCoor
 const { updateCallerDisplayName } = require("../memory/callerMemory");
 const { hangupCall } = require("../utils/twilioRecordings");
 const { getCachedOpening } = require("../logic/openingBuilder");
-const { buildSystemInstructionFromSSOT } = require("../realtime/systemInstructionBuilder");
+const { buildSystemInstructionFromSSOT, buildContextUpdateBlock } = require("../realtime/systemInstructionBuilder");
 const { handleBotTranscript, handleUserTranscript } = require("../realtime/transcriptHandlers");
 const { recordCallEvent } = require("../debug/debugLogger");
 const { DEBUG_EVENT_CATEGORIES, DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
@@ -844,6 +844,33 @@ class GeminiLiveSession {
     }
   }
 
+  _injectContextUpdate() {
+    if (!this.ws || this.closed || !this.ready || this._openingPhase) return;
+    const memory = this._orchestrator?.getContextSummary?.();
+    if (!memory) return;
+    const block = buildContextUpdateBlock(memory);
+    if (!block) return;
+    try {
+      this.ws.send(JSON.stringify({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text: block }] }],
+          turnComplete: false,
+        },
+      }));
+      recordCallEvent({
+        callSid: this._getCallData().callSid,
+        streamSid: this._getCallData().streamSid,
+        category: DEBUG_EVENT_CATEGORIES.CONVERSATION,
+        type: "CONTEXT_UPDATE_INJECTED",
+        source: "geminiLiveSession",
+        level: "debug",
+        data: { block },
+      });
+    } catch (e) {
+      logger.debug("Failed sending context update", { ...this.meta, error: e?.message });
+    }
+  }
+
   _sendNaturalRetryForIntent(intentId) {
     const settings = this.ssot?.settings || {};
     if (intentId === "reports_request") {
@@ -1132,6 +1159,7 @@ class GeminiLiveSession {
       onCallbackConfirmed: (nextQuestion) => this._sendImmediateCallbackConfirmed(nextQuestion),
     });
     this._orchestrator?.syncFromCall?.();
+    this._injectContextUpdate();
   }
 
   _scheduleHangupAfterAssistantDone() {
