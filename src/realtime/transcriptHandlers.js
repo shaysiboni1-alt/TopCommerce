@@ -415,6 +415,7 @@ function handleBotTranscript(session, nlp) {
       hasHebrewLetters(botAsName) &&
       (session._awaitingNameModelEcho || lastBotAskedForName(previousAssistant) || userLooksLikeExplicitName)
     ) {
+      if (!session._awaitingNameModelEcho && /שם\s*שלי|שמי|קוראים\s*לי/u.test(recentUser)) return false;
       clearReportPromptLoopForCapturedName(session);
       safeCommitRuntimeName(
         session,
