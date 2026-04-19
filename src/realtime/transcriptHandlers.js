@@ -234,7 +234,7 @@ function handleUserTranscript(session, nlp) {
           if (normalizedName && hasHebrewLetters(normalizedName) && (askedForName || explicit)) {
             clearReportPromptLoopForCapturedName(session);
             safeCommitRuntimeName(session, normalizedName, found.reason, normalizedNlp.raw);
-            return true;
+            if (askedForName) return true;
           }
           if (askedForName || explicit) {
             const recovery = session._orchestrator?.handleNameCaptureRecovery?.({
