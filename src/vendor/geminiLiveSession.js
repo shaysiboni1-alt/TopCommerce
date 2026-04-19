@@ -469,7 +469,7 @@ class GeminiLiveSession {
             (Array.isArray(businessContextLines(this.ssot))
               ? businessContextLines(this.ssot).join(" ")
               : "") ||
-            "שלום, מדברת בטי מאינדקס חשבונאות, איך אפשר לעזור?";
+            "שלום, במה אפשר לעזור?";
         }
 
         this._beginOpeningPhase();
