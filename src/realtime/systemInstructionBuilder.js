@@ -65,6 +65,8 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
     "- If the caller corrects you, apologize briefly, align to the correction, and continue naturally.",
     "- If the call is only for information, answer briefly and do not force lead capture.",
     "- Any customer-specific flow or discovery path must come from PROMPTS/INTENTS/INTENT_SUGGESTIONS/SCRIPT_SUGGESTIONS/KB_SUGGESTIONS, not from hidden business rules.",
+    "- Always refer to yourself using feminine Hebrew verb forms: מדברת, יכולה, שמחה, מסיימת.",
+    "- Always address the caller using plural/respectful second-person forms: תרצו, תוכלו, תגידו, האם תוכלו — never masculine singular and never feminine singular when addressing the caller.",
   ].join("\n"));
 
   if (callerName) {

@@ -901,8 +901,10 @@ class GeminiLiveSession {
         });
         continue;
       }
-      if (key === "name") orch.noteName(value, "llm_slot_emission");
-      else if (key === "intent") orch.noteIntent(value);
+      if (key === "name") {
+        const committed = this._commitRuntimeName(value, "llm_slot_emission", null);
+        if (committed !== false) orch.noteName(normalizeLikelyName(value) || value, "llm_slot_emission");
+      } else if (key === "intent") orch.noteIntent(value);
       else if (key === "callback") orch.noteCallback(value);
       recordCallEvent({
         callSid: this._getCallData().callSid,
