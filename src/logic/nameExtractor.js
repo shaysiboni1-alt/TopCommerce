@@ -131,7 +131,7 @@ function sanitizeCandidate(raw, opts = {}) {
 function lastBotAskedForName(lastBotUtterance) {
   const t = stripPunct(lastBotUtterance || "");
   if (!t) return false;
-  return /מה\s*השם|איך\s*קוראים|מי\s*מדבר|מי\s*מדברת|שמך|שמך\s*בבקשה|איך\s*קוראים\s*לכם|איך\s*קוראים\s*לך/i.test(t);
+  return /מה\s*השם|מה\s*שמכם|איך\s*קוראים|מי\s*מדבר|מי\s*מדברת|שמך|שמכם|שמך\s*בבקשה|איך\s*קוראים\s*לכם|איך\s*קוראים\s*לך/i.test(t);
 }
 
 function extractCallerName({ userText, lastBotUtterance }) {
