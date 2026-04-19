@@ -1227,6 +1227,7 @@ class GeminiLiveSession {
         duration_seconds: Math.max(0, Math.round(durationMs / 1000)),
         finalize_reason: source || "",
         language_locked: this._langState.lockedLanguage,
+        caller_profile: this.meta?.caller_profile || null,
       };
 
       if (this._passiveCtx && passiveCallContext?.finalizeCtx) {
