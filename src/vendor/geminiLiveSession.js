@@ -1022,6 +1022,7 @@ class GeminiLiveSession {
     if (!this.ws || this.closed || !this.ready) return;
     const safeText = safeStr(exactText);
     if (!safeText) return;
+    this._interruptRecoveryUntilTs = Date.now() + 1500;
     this._lastImmediatePrompt = { text: safeText, label: safeStr(label), at: Date.now() };
     const msg = {
       clientContent: {
@@ -1387,6 +1388,7 @@ class GeminiLiveSession {
 
   sendPcm16kBase64(pcm16kB64) {
     if (!this.ws || this.closed || !this.ready || !pcm16kB64) return;
+    if (this._interruptRecoveryUntilTs && Date.now() < this._interruptRecoveryUntilTs) return;
     try {
       this.ws.send(
         JSON.stringify({
