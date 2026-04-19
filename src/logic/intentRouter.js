@@ -130,7 +130,6 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
       }
     }
 
-    // semantic-ish fallback for common accounting phrases after Hebrew normalization
     const nv = prepared.normalized;
     const compact = nv.replace(/\s+/g, "");
 
@@ -143,14 +142,6 @@ function detectIntent(input, maybeIntents, maybeOpts = {}) {
     ) {
       score += 4;
       matched.push('דו"ח');
-    }
-
-    if (
-      intentId === "reach_margarita" &&
-      (/מרגריטה|ריטה/u.test(nv) || compact.includes("מרגריטה"))
-    ) {
-      score += 4;
-      matched.push("מרגריטה");
     }
 
     if (

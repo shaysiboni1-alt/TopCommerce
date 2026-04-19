@@ -58,7 +58,6 @@ function resolveClosingKey(intentId = "other") {
 
   const aliases = {
     callback_request: "CLOSING_callback",
-    reach_margarita: "CLOSING_callback",
     appointment_request: "CLOSING_callback",
     reports_request: "CLOSING_support",
     ask_contact_info: "CLOSING_info",
