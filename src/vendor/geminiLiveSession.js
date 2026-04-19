@@ -254,9 +254,25 @@ class GeminiLiveSession {
           typeof this._looksIncompleteUserThought === "function"
             ? this._looksIncompleteUserThought(bufferedText)
             : false;
-        const shouldHold = this._isShortUserFragment(bufferedText) || looksIncomplete;
+        
+        let isShort = this._isShortUserFragment(bufferedText);
+        let maxAgeMs = Math.max(ctx.stableGapMs * 2, getUserTranscriptMaxBufferMs());
+
+        const mem = this._orchestrator?.memory?.snapshot();
+        if (mem && mem.meaningfulUserTurns === 0) {
+          const words = this._countWords(bufferedText);
+          const isClassificationAnswer = /(חדש|קיי?ם)/.test(bufferedText);
+          
+          if (isClassificationAnswer) {
+            isShort = false;
+          } else if (words < 3) {
+            isShort = true;
+          }
+          maxAgeMs = Math.max(maxAgeMs, 3500);
+        }
+
+        const shouldHold = isShort || looksIncomplete;
         if (!shouldHold) return false;
-        const maxAgeMs = Math.max(ctx.stableGapMs * 2, getUserTranscriptMaxBufferMs());
         return ctx.bufferAgeMs < maxAgeMs;
       },
       mergeChunks: mergeTranscriptChunks,
