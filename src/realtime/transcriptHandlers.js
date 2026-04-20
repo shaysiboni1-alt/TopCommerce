@@ -328,6 +328,7 @@ function handleUserTranscript(session, nlp) {
       intentSuggestions: session.ssot?.intent_suggestions || [],
     });
     session._lastDetectedIntent = intent?.intent_id || "other";
+    if ((intent?.score || 0) > 0) session._orchestrator?.noteIntent?.(intent.intent_id);
 
     logger.info("INTENT_DETECTED", {
       ...session.meta,

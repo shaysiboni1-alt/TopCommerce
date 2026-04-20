@@ -139,6 +139,7 @@ function buildSystemInstructionFromSSOT(ssot, runtimeMeta) {
   return sections.filter(Boolean).join("\n\n---\n\n").trim();
 }
 
+// Live production context builder — behavior unchanged from baseline.
 function buildContextUpdateBlock(memorySnapshot) {
   const s = memorySnapshot || {};
   const fields = s.collectedFields || {};
@@ -182,4 +183,76 @@ function buildContextUpdateBlock(memorySnapshot) {
   ].join("\n");
 }
 
-module.exports = { buildSystemInstructionFromSSOT, buildContextUpdateBlock };
+// Shadow/V2 context builder — schema-driven, NOT injected into LLM yet.
+// Used for comparison logging only (CONTEXT_UPDATE_SHADOW events).
+function buildContextUpdateBlockV2({ memorySnapshot, slotManagerSnapshot, turnCount } = {}) {
+  const slotSnap = slotManagerSnapshot || {};
+
+  if (slotSnap.schema_loaded) {
+    const collected = Object.entries(slotSnap.collected || {}).map(([k, v]) => `${k}: ${v.value}`);
+    const missing = (slotSnap.missing || []).map((k) => `${k}: required`);
+    const dropped = Object.keys(slotSnap.dropped || {}).map((k) => `${k}: abandoned`);
+    const pending = Object.entries(slotSnap.pending || {}).map(([k, v]) => `${k}: pending_confirmation (${v.value})`);
+    const maxTurns = slotSnap.max_turns;
+    const turnLine = (maxTurns && turnCount != null) ? `turn: ${turnCount}/${maxTurns}` : null;
+    const nextAction = slotSnap.is_minimum_viable
+      ? "proceed_to_close"
+      : missing.length
+        ? `ask_for: ${(slotSnap.missing || [])[0]}`
+        : "proceed_to_close";
+
+    return [
+      "[CONTEXT_UPDATE]",
+      ...(turnLine ? [turnLine] : []),
+      "collected:",
+      ...(collected.length ? collected : ["(none)"]),
+      ...(pending.length ? ["pending:", ...pending] : []),
+      "missing:",
+      ...(missing.length ? missing : ["(none)"]),
+      ...(dropped.length ? ["dropped:", ...dropped] : []),
+      `next_action: ${nextAction}`,
+      "[/CONTEXT_UPDATE]",
+    ].join("\n");
+  }
+
+  // Fallback when no schema loaded — ConversationMemory path with next_action.
+  const s = memorySnapshot || {};
+  const fields = s.collectedFields || {};
+  const collected = [];
+  const missing = [];
+
+  if (fields.name && s.callerName) {
+    collected.push(`name: ${s.callerName}`);
+  } else {
+    missing.push(`name: required`);
+  }
+
+  if (s.customerType) collected.push(`customer_type: ${s.customerType}`);
+  if (fields.intent && s.intent) collected.push(`intent: ${s.intent}`);
+
+  if (fields.subject) {
+    collected.push(`subject: collected`);
+  } else if (s.intent !== "info") {
+    missing.push(`subject: required`);
+  }
+
+  if (fields.callback) {
+    collected.push(`callback: confirmed`);
+  } else if (s.intent === "callback_request" || s.awaitingCallbackConfirmation) {
+    missing.push(`callback: required`);
+  }
+
+  const nextAction = missing.length ? `ask_for: ${missing[0].split(":")[0]}` : "proceed_to_close";
+
+  return [
+    "[CONTEXT_UPDATE]",
+    "collected:",
+    ...(collected.length ? collected : ["(none)"]),
+    "missing:",
+    ...(missing.length ? missing : ["(none)"]),
+    `next_action: ${nextAction}`,
+    "[/CONTEXT_UPDATE]",
+  ].join("\n");
+}
+
+module.exports = { buildSystemInstructionFromSSOT, buildContextUpdateBlock, buildContextUpdateBlockV2 };

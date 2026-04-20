@@ -83,6 +83,24 @@ function rowsToPrompts(rows) {
   return out;
 }
 
+function parsePipeSeparated(value) {
+  return String(value || "").split("|").map((s) => s.trim()).filter(Boolean);
+}
+
+function parseSlotMaxAttempts(value) {
+  const out = {};
+  const s = String(value || "").trim();
+  if (!s) return out;
+  for (const pair of s.split(",")) {
+    const colonIdx = pair.indexOf(":");
+    if (colonIdx === -1) continue;
+    const key = pair.slice(0, colonIdx).trim();
+    const val = parseInt(pair.slice(colonIdx + 1).trim(), 10);
+    if (key && Number.isFinite(val) && val > 0) out[key] = val;
+  }
+  return out;
+}
+
 function rowsToIntents(rows) {
   return rows.map((row) => ({
     intent_id: normalizeCell(row.intent_id).trim(),
@@ -93,6 +111,13 @@ function rowsToIntents(rows) {
     triggers_ru: normalizeCell(row.triggers_ru),
     description_he: normalizeCell(row["הסבר בעברית"]),
     examples: normalizeCell(row["דוגמאות שימוש"]),
+    required_slots: parsePipeSeparated(row.required_slots),
+    minimum_viable_slots: parsePipeSeparated(row.minimum_viable_slots),
+    optional_slots: parsePipeSeparated(row.optional_slots),
+    slot_max_attempts: parseSlotMaxAttempts(row.slot_max_attempts),
+    max_turns: Number(normalizeCell(row.max_turns)) || 0,
+    closing_template: normalizeCell(row.closing_template).trim(),
+    force_close_template: normalizeCell(row.force_close_template).trim(),
   })).filter((r) => r.intent_id);
 }
 

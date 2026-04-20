@@ -33,7 +33,7 @@ const { finalizeThroughCoordinator } = require("../finalization/finalizationCoor
 const { updateCallerDisplayName } = require("../memory/callerMemory");
 const { hangupCall } = require("../utils/twilioRecordings");
 const { getCachedOpening } = require("../logic/openingBuilder");
-const { buildSystemInstructionFromSSOT, buildContextUpdateBlock } = require("../realtime/systemInstructionBuilder");
+const { buildSystemInstructionFromSSOT, buildContextUpdateBlock, buildContextUpdateBlockV2 } = require("../realtime/systemInstructionBuilder");
 const { handleBotTranscript, handleUserTranscript } = require("../realtime/transcriptHandlers");
 const { recordCallEvent } = require("../debug/debugLogger");
 const { DEBUG_EVENT_CATEGORIES, DEBUG_EVENT_TYPES } = require("../debug/debugEventTypes");
@@ -862,6 +862,22 @@ class GeminiLiveSession {
     if (!memory) return;
     const block = buildContextUpdateBlock(memory);
     if (!block) return;
+
+    // Shadow: generate V2 block for inspection — NOT sent to LLM.
+    const slotSnap = this._orchestrator?.getSlotManagerSnapshot?.();
+    const shadowBlock = buildContextUpdateBlockV2({ memorySnapshot: memory, slotManagerSnapshot: slotSnap, turnCount: memory?.turns });
+    if (shadowBlock) {
+      recordCallEvent({
+        callSid: this._getCallData().callSid,
+        streamSid: this._getCallData().streamSid,
+        category: DEBUG_EVENT_CATEGORIES.CONVERSATION,
+        type: "CONTEXT_UPDATE_SHADOW",
+        source: "geminiLiveSession",
+        level: "debug",
+        data: { live: block, shadow: shadowBlock },
+      });
+    }
+
     try {
       this.ws.send(JSON.stringify({
         clientContent: {

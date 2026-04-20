@@ -88,9 +88,19 @@ function validateSsotSnapshot(ssot) {
     }
   });
 
+  // Warn when lead-type intents have no slot schema — these will not drive dynamic collection.
+  const intentsWithoutSlotSchema = intents
+    .filter((row) => {
+      const type = safeStr(row?.intent_type).toLowerCase();
+      const hasRequired = Array.isArray(row?.required_slots) && row.required_slots.length > 0;
+      return type === "lead" && !hasRequired;
+    })
+    .map((row) => safeStr(row?.intent_id));
+
   const warnings = [];
   if (missingSupportedSettings.length) warnings.push(`missing_supported_settings:${missingSupportedSettings.join(",")}`);
   if (Object.values(unknownSuggestionIntentReferences).some((rows) => rows.length)) warnings.push("unknown_suggestion_intent_references");
+  if (intentsWithoutSlotSchema.length) warnings.push(`intent_schema_incomplete:${intentsWithoutSlotSchema.join(",")}`);
 
   return {
     ok: missingPromptIds.length === 0 && duplicatePromptIds.length === 0 && duplicateIntentIds.length === 0,
@@ -99,6 +109,7 @@ function validateSsotSnapshot(ssot) {
     duplicate_intent_ids: duplicateIntentIds,
     missing_supported_settings: missingSupportedSettings,
     unknown_suggestion_intent_references: unknownSuggestionIntentReferences,
+    intents_without_slot_schema: intentsWithoutSlotSchema,
     warnings: uniq(warnings),
   };
 }

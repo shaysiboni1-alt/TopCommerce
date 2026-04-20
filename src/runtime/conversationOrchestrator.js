@@ -5,6 +5,7 @@ const { LeadManager } = require("./leadManager");
 const { TurnManager } = require("./turnManager");
 const { SilenceManager } = require("./silenceManager");
 const { AudioPolicy } = require("./audioPolicy");
+const { SlotManager } = require("./slotManager");
 const { recordCallEvent } = require("../debug/debugLogger");
 const { DEBUG_EVENT_CATEGORIES } = require("../debug/debugEventTypes");
 
@@ -21,6 +22,7 @@ class ConversationOrchestrator {
     this.turnManager = new TurnManager();
     this.leadManager = new LeadManager({ callSession, memory: this.memory, ssot });
     this.audioPolicy = new AudioPolicy({ env, turnManager: this.turnManager, memory: this.memory });
+    this.slotManager = (env || {}).SLOT_MANAGER_ENABLED ? new SlotManager() : null;
     this.silenceManager = new SilenceManager({
       env,
       ssot,
@@ -84,6 +86,7 @@ class ConversationOrchestrator {
         conversation_memory: mem,
         lead_manager: lead,
         turn_manager: turn,
+        slot_manager: this.slotManager ? this.slotManager.snapshot() : undefined,
       },
     }));
   }
@@ -119,7 +122,7 @@ class ConversationOrchestrator {
       const intent = safeStr(n.intent || n.intent_id);
       const subject = safeStr(n.subject);
       const callbackNumber = safeStr(n.callback_number || n.callback_to_number);
-      if (intent) this.leadManager.noteIntent(intent);
+      if (intent) this.noteIntent(intent);
       if (subject) this.leadManager.noteSubject(subject);
       if (callbackNumber) this.leadManager.noteCallback(callbackNumber);
     }
@@ -174,6 +177,10 @@ class ConversationOrchestrator {
 
   noteIntent(intent) {
     this.leadManager.noteIntent(intent);
+    if (this.env.SLOT_MANAGER_ENABLED && this.slotManager && intent) {
+      const schema = (this.ssot?.intents || []).find((r) => r.intent_id === intent);
+      if (schema && !this.slotManager.schema) this.slotManager.init(schema);
+    }
     this._syncSnapshot();
   }
 
@@ -217,6 +224,10 @@ class ConversationOrchestrator {
 
   getContextSummary() {
     return this.memory.snapshot();
+  }
+
+  getSlotManagerSnapshot() {
+    return this.slotManager ? this.slotManager.snapshot() : null;
   }
 
   getUserFlushDelayMs(baseMs) {
